@@ -5,6 +5,15 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.runtime.saveable.rememberSaveable
+import app.mixtape.data.db.PlaylistWithCount
+import app.mixtape.core.model.Track
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -76,6 +85,10 @@ fun LibraryScreen(
     val playlistsFlow = remember { container.library.playlists() }
     val playlists by playlistsFlow.collectAsStateWithLifecycle(emptyList())
     var creating by remember { mutableStateOf(false) }
+    var sortName by rememberSaveable { mutableStateOf(PlaylistSort.NEWEST.name) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val sort = PlaylistSort.valueOf(sortName)
+    val sorted = remember(playlists, sort) { sort.apply(playlists) }
 
     val csvPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -137,8 +150,27 @@ fun LibraryScreen(
                 },
             )
         }
-        item { SectionTitle("Playlists") }
-        if (playlists.isEmpty()) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("Playlists", Modifier.weight(1f))
+                Box {
+                    TextButton(onClick = { sortMenu = true }) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(sort.label)
+                    }
+                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        PlaylistSort.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = { sortName = option.name; sortMenu = false },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (sorted.isEmpty()) {
             item {
                 Text(
                     "No playlists yet. Tap + to create one, or import from Spotify.",
@@ -147,7 +179,7 @@ fun LibraryScreen(
                 )
             }
         }
-        items(playlists, key = { it.playlist.id }) { p ->
+        items(sorted, key = { it.playlist.id }) { p ->
             ListItem(
                 headlineContent = { Text(p.playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {
@@ -157,9 +189,19 @@ fun LibraryScreen(
                         PlaylistOrigin.CSV -> "CSV · "
                         else -> ""
                     }
-                    Text("$origin${p.trackCount} tracks")
+                    val dl = when {
+                        p.trackCount > 0 && p.downloadedCount >= p.trackCount -> " · all downloaded"
+                        p.downloadedCount > 0 -> " · ${p.downloadedCount} downloaded"
+                        else -> ""
+                    }
+                    val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM)
+                        .format(java.util.Date(p.playlist.createdAt))
+                    Text("$origin${p.trackCount} tracks$dl · added $date", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 leadingContent = { Artwork(p.playlist.artworkUrl, 48) },
+                trailingContent = if (p.trackCount > 0 && p.downloadedCount >= p.trackCount) {
+                    { Icon(Icons.Filled.DownloadDone, "All downloaded", tint = MaterialTheme.colorScheme.primary) }
+                } else null,
                 modifier = Modifier.clickable { openPlaylist(p.playlist.id) },
             )
         }
@@ -200,6 +242,9 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
     var syncing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    val shown = remember(tracks, query) { filterTracks(tracks, query) }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -207,6 +252,9 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
             title = { Text(playlist?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
+                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                    Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, "Search in this list")
+                }
                 val p = playlist
                 if (p != null && (p.origin == PlaylistOrigin.SPOTIFY || p.origin == PlaylistOrigin.LINK) && p.externalId != null) {
                     IconButton(enabled = !syncing, onClick = {
@@ -229,11 +277,14 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete playlist") }
             },
         )
+        if (searching) {
+            TrackSearchField(query, onChange = { query = it })
+        }
         if (tracks.isEmpty()) {
             EmptyState("This playlist is empty.")
         } else {
             TrackList(
-                tracks, liked, downloaded,
+                shown, liked, downloaded,
                 header = {
                     Row(
                         Modifier.fillMaxWidth().padding(16.dp),
@@ -297,6 +348,9 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
     val tracks by tracksFlow.collectAsStateWithLifecycle(emptyList())
     val liked by likedFlow.collectAsStateWithLifecycle(emptySet())
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
+    var query by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    val shown = remember(tracks, query) { filterTracks(tracks, query) }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -304,6 +358,9 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
             title = { Text(if (kind == "recent") "Recently played" else "Liked songs") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
+                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                    Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, "Search in this list")
+                }
                 if (kind == "recent") {
                     IconButton(onClick = { scope.launch { container.library.clearHistory() } }) {
                         Icon(Icons.Filled.Delete, "Clear history")
@@ -311,11 +368,14 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
                 }
             },
         )
+        if (searching) {
+            TrackSearchField(query, onChange = { query = it })
+        }
         if (tracks.isEmpty()) {
             EmptyState(if (kind == "recent") "Nothing played yet." else "Tap the heart on any song to save it here.")
         } else {
             TrackList(
-                tracks, liked, downloaded,
+                shown, liked, downloaded,
                 header = {
                     Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { actions.play(tracks, 0) }) { Text("Play all") }
@@ -330,3 +390,46 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
 }
 
 const val SPOTIFY_LIKED_ID = "liked-songs"
+
+enum class PlaylistSort(val label: String) {
+    NEWEST("Newest first"),
+    OLDEST("Oldest first"),
+    RECENTLY_CHANGED("Recently changed"),
+    NAME("Name A-Z"),
+    MOST_SONGS("Most songs"),
+    MOST_DOWNLOADED("Most downloaded");
+
+    fun apply(list: List<PlaylistWithCount>): List<PlaylistWithCount> = when (this) {
+        NEWEST -> list.sortedByDescending { it.playlist.createdAt }
+        OLDEST -> list.sortedBy { it.playlist.createdAt }
+        RECENTLY_CHANGED -> list.sortedByDescending { it.playlist.updatedAt }
+        NAME -> list.sortedBy { it.playlist.name.lowercase() }
+        MOST_SONGS -> list.sortedByDescending { it.trackCount }
+        MOST_DOWNLOADED -> list.sortedWith(compareByDescending<PlaylistWithCount> { it.downloadedCount }.thenByDescending { it.trackCount })
+    }
+}
+
+/** Matches title, artist or album, ignoring case; every word must match somewhere. */
+fun filterTracks(tracks: List<Track>, query: String): List<Track> {
+    val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return tracks
+    return tracks.filter { t ->
+        val hay = (t.title + " " + t.artist + " " + (t.album ?: "")).lowercase()
+        words.all { hay.contains(it) }
+    }
+}
+
+@Composable
+fun TrackSearchField(query: String, onChange: (String) -> Unit, placeholder: String = "Search songs in this list") {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onChange,
+        placeholder = { Text(placeholder) },
+        leadingIcon = { Icon(Icons.Filled.Search, null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Filled.Close, "Clear") }
+        },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+}

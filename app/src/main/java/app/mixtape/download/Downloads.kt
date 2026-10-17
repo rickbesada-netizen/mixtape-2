@@ -94,11 +94,15 @@ class DownloadController(
         }
     }
 
+    /** Lets cloud sync know a download was removed. */
+    var onDeleted: ((String) -> Unit)? = null
+
     fun delete(key: String) {
         WorkManager.getInstance(context).cancelUniqueWork(workName(key))
         scope.launch {
             fileFor(key).delete()
             dao.delete(key)
+            onDeleted?.invoke(key)
         }
     }
 

@@ -37,6 +37,8 @@ fun SettingsScreen() {
     val hiResMp4 by container.settings.hiResAsMp4.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        AccountSection()
+        HorizontalDivider(Modifier.padding(top = 8.dp))
         SectionTitle("Settings")
 
         Text("Streaming quality", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp))

@@ -1,7 +1,10 @@
 package app.mixtape.data.db
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.Database
 import androidx.room.Embedded
 import androidx.room.Entity
@@ -76,6 +79,9 @@ data class PlaylistEntity(
     val externalId: String? = null,
     val artworkUrl: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Stable id shared with the cloud copy of this playlist (null until first sync). */
+    val syncId: String? = null,
+    @ColumnInfo(defaultValue = "0") val updatedAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(
@@ -92,7 +98,11 @@ data class PlaylistTrackEntity(
 data class PlaylistWithCount(
     @Embedded val playlist: PlaylistEntity,
     val trackCount: Int,
+    val downloadedCount: Int,
 )
+
+/** Which playlists a track appears in (for library-wide search results). */
+data class TrackPlaylistName(val trackKey: String, val name: String)
 
 object DownloadState {
     const val QUEUED = "queued"
@@ -161,6 +171,25 @@ interface TrackDao {
     @Query("SELECT trackKey FROM tracks WHERE liked = 1")
     fun likedKeys(): Flow<List<String>>
 
+    /** Searches songs you have: downloaded, liked, or in any playlist. */
+    @Query(
+        "SELECT * FROM tracks WHERE (title LIKE :q OR artist LIKE :q OR album LIKE :q) AND (" +
+            "liked = 1 OR trackKey IN (SELECT trackKey FROM playlist_tracks) " +
+            "OR trackKey IN (SELECT trackKey FROM downloads WHERE state = 'done')) " +
+            "ORDER BY title COLLATE NOCASE LIMIT 300"
+    )
+    suspend fun searchLibrary(q: String): List<TrackEntity>
+
+    @Query(
+        "SELECT t.* FROM tracks t INNER JOIN downloads d ON d.trackKey = t.trackKey " +
+            "WHERE d.state = 'done' AND (t.title LIKE :q OR t.artist LIKE :q OR t.album LIKE :q) " +
+            "ORDER BY t.title COLLATE NOCASE LIMIT 300"
+    )
+    suspend fun searchDownloads(q: String): List<TrackEntity>
+
+    @Query("SELECT * FROM tracks WHERE liked = 1 OR trackKey IN (SELECT trackKey FROM playlist_tracks) OR trackKey IN (SELECT trackKey FROM downloads WHERE state = 'done')")
+    suspend fun libraryTracks(): List<TrackEntity>
+
     @Query("UPDATE tracks SET liked = :liked, likedAt = :at WHERE trackKey = :key")
     suspend fun setLiked(key: String, liked: Boolean, at: Long)
 }
@@ -186,7 +215,9 @@ abstract class PlaylistDao {
     abstract suspend fun findExternal(origin: String, externalId: String): PlaylistEntity?
 
     @Query(
-        "SELECT p.*, (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlistId = p.id) AS trackCount " +
+        "SELECT p.*, (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlistId = p.id) AS trackCount, " +
+            "(SELECT COUNT(*) FROM playlist_tracks pt INNER JOIN downloads d ON d.trackKey = pt.trackKey " +
+            "WHERE pt.playlistId = p.id AND d.state = 'done') AS downloadedCount " +
             "FROM playlists p ORDER BY p.createdAt DESC"
     )
     abstract fun all(): Flow<List<PlaylistWithCount>>
@@ -196,6 +227,24 @@ abstract class PlaylistDao {
             "WHERE pt.playlistId = :playlistId ORDER BY pt.position"
     )
     abstract fun tracks(playlistId: Long): Flow<List<TrackEntity>>
+
+    @Query("UPDATE playlists SET updatedAt = :at WHERE id = :id")
+    abstract suspend fun touch(id: Long, at: Long)
+
+    @Query("UPDATE playlists SET syncId = :syncId WHERE id = :id")
+    abstract suspend fun setSyncId(id: Long, syncId: String)
+
+    @Query("SELECT * FROM playlists")
+    abstract suspend fun allOnce(): List<PlaylistEntity>
+
+    @Query("SELECT * FROM playlists WHERE syncId = :syncId LIMIT 1")
+    abstract suspend fun bySyncId(syncId: String): PlaylistEntity?
+
+    @Query(
+        "SELECT pt.trackKey AS trackKey, p.name AS name FROM playlist_tracks pt " +
+            "INNER JOIN playlists p ON p.id = pt.playlistId WHERE pt.trackKey IN (:keys)"
+    )
+    abstract suspend fun playlistNamesFor(keys: List<String>): List<TrackPlaylistName>
 
     @Query("SELECT COALESCE(MAX(position), -1) FROM playlist_tracks WHERE playlistId = :playlistId")
     abstract suspend fun maxPosition(playlistId: Long): Int
@@ -237,6 +286,9 @@ interface DownloadDao {
     @Query("SELECT trackKey FROM downloads WHERE state = 'done'")
     fun doneKeys(): Flow<List<String>>
 
+    @Query("SELECT trackKey FROM downloads WHERE state = 'done'")
+    suspend fun doneKeysOnce(): List<String>
+
     @Query("UPDATE downloads SET state = :state, error = :error WHERE trackKey = :key")
     suspend fun setState(key: String, state: String, error: String? = null)
 
@@ -257,6 +309,9 @@ interface MatchDao {
 
     @Upsert
     suspend fun upsert(m: MatchEntity)
+
+    @Query("SELECT * FROM matches")
+    suspend fun all(): List<MatchEntity>
 
     @Query("DELETE FROM matches WHERE manual = 0")
     suspend fun clearAutomatic()
@@ -283,7 +338,7 @@ interface HistoryDao {
         TrackEntity::class, PlaylistEntity::class, PlaylistTrackEntity::class,
         DownloadEntity::class, MatchEntity::class, HistoryEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -294,9 +349,18 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun history(): HistoryDao
 
     companion object {
+        /** v2: playlists get a cloud sync id and an updated-at time. Keeps everyone's library. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN syncId TEXT")
+                db.execSQL("ALTER TABLE playlists ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "mixtape.db")
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }
 }

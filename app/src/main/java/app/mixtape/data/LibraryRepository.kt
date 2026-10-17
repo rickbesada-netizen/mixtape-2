@@ -46,7 +46,11 @@ class LibraryRepository(private val db: AppDatabase) {
     suspend fun createPlaylist(name: String): Long =
         playlists.insert(PlaylistEntity(name = name, origin = PlaylistOrigin.LOCAL))
 
+    /** Called before a delete so the cloud copy can be removed too. */
+    var onPlaylistDeleted: (suspend (syncId: String) -> Unit)? = null
+
     suspend fun deletePlaylist(id: Long) {
+        playlists.get(id)?.syncId?.let { onPlaylistDeleted?.invoke(it) }
         db.withTransaction {
             playlists.clearEntries(id)
             playlists.delete(id)
@@ -57,10 +61,24 @@ class LibraryRepository(private val db: AppDatabase) {
         saveTracks(listOf(track))
         val next = playlists.maxPosition(playlistId) + 1
         playlists.insertEntries(listOf(PlaylistTrackEntity(playlistId, next, track.key)))
+        playlists.touch(playlistId, System.currentTimeMillis())
     }
 
-    suspend fun removeFromPlaylist(playlistId: Long, trackKey: String) =
+    suspend fun removeFromPlaylist(playlistId: Long, trackKey: String) {
         playlists.removeTrack(playlistId, trackKey)
+        playlists.touch(playlistId, System.currentTimeMillis())
+    }
+
+    /** Songs you have (downloaded, liked or in a playlist) matching [query], with their playlists. */
+    suspend fun searchLibrary(query: String, downloadsOnly: Boolean): List<Pair<Track, List<String>>> {
+        val q = "%" + query.trim().replace("%", "").replace("_", "") + "%"
+        val found = if (downloadsOnly) tracks.searchDownloads(q) else tracks.searchLibrary(q)
+        if (found.isEmpty()) return emptyList()
+        val names = found.map { it.trackKey }.chunked(500)
+            .flatMap { playlists.playlistNamesFor(it) }
+            .groupBy({ it.trackKey }, { it.name })
+        return found.map { it.toTrack() to (names[it.trackKey]?.distinct() ?: emptyList()) }
+    }
 
     /** Creates or refreshes an imported playlist (Spotify, CSV), keyed by its external id. */
     suspend fun upsertImportedPlaylist(
@@ -74,6 +92,7 @@ class LibraryRepository(private val db: AppDatabase) {
         val existing = playlists.findExternal(origin, externalId)
         val id = if (existing != null) {
             playlists.updateInfo(existing.id, name, artworkUrl)
+            playlists.touch(existing.id, System.currentTimeMillis())
             existing.id
         } else {
             playlists.insert(

@@ -1,6 +1,18 @@
 package app.mixtape.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import app.mixtape.core.model.SourceType
+import app.mixtape.core.model.Track
+import app.mixtape.ui.components.TrackRow
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,12 +67,85 @@ fun DownloadsScreen(openVideo: (String) -> Unit) {
     val doneTracks = done.mapNotNull { it.track?.toTrack() }
     val totalBytes = allDone.sumOf { it.download.bytesTotal }
 
-    if (downloads.isEmpty()) {
-        EmptyState("Downloaded songs play offline and stay inside the app. Use the menu on any song to download it.")
-        return
+    var query by rememberSaveable { mutableStateOf("") }
+    var searchAll by rememberSaveable { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<Pair<Track, List<String>>>>(emptyList()) }
+    val restorable by container.cloud.restorable.collectAsStateWithLifecycle()
+    val likedFlow = remember { container.library.likedKeys() }
+    val liked by likedFlow.collectAsStateWithLifecycle(emptySet())
+    val doneKeys = remember(allDone) { allDone.map { it.download.trackKey }.toSet() }
+
+    LaunchedEffect(query, searchAll, allDone.size) {
+        if (query.isBlank()) {
+            results = emptyList()
+        } else {
+            delay(200)
+            results = container.library.searchLibrary(query, downloadsOnly = !searchAll)
+        }
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+    TrackSearchField(
+        query, onChange = { query = it },
+        placeholder = if (searchAll) "Search every song in every playlist" else "Search all your downloads",
+    )
+    if (query.isNotBlank()) {
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !searchAll, onClick = { searchAll = false }, label = { Text("Downloads") })
+            FilterChip(selected = searchAll, onClick = { searchAll = true }, label = { Text("All my playlists") })
+        }
+    }
+    if (restorable.isNotEmpty() && query.isBlank()) {
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("${restorable.size} downloads from your account aren't on this phone", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    Button(onClick = {
+                        actions.download(restorable)
+                        container.cloud.clearRestorable()
+                    }) { Text("Restore all") }
+                    TextButton(onClick = { container.cloud.clearRestorable() }) { Text("Not now") }
+                }
+            }
+        }
+    }
+
+    when {
+    query.isNotBlank() -> {
+        if (results.isEmpty()) {
+            EmptyState(if (searchAll) "No songs in your playlists match \"$query\"" else "No downloads match \"$query\". Try \"All my playlists\".")
+        } else {
+            val resultTracks = results.map { it.first }
+            LazyColumn(Modifier.fillMaxSize()) {
+                items(results.size, key = { i -> "s-" + results[i].first.key }) { i ->
+                    val (t, playlists) = results[i]
+                    Column {
+                        TrackRow(
+                            track = t,
+                            liked = t.key in liked,
+                            downloaded = t.key in doneKeys,
+                            onClick = {
+                                if (t.source == SourceType.YOUTUBE_VIDEO) openVideo(t.sourceId)
+                                else actions.play(resultTracks, i)
+                            },
+                        )
+                        if (playlists.isNotEmpty()) {
+                            Text(
+                                "In: " + playlists.joinToString(", "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 76.dp, end = 16.dp, bottom = 6.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+    downloads.isEmpty() -> EmptyState("Downloaded songs play offline and stay inside the app. Use the menu on any song to download it.")
+    else -> LazyColumn(Modifier.fillMaxSize()) {
         item {
             Row(Modifier.fillMaxWidth().padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 SectionTitle("Downloads", Modifier.weight(1f))
@@ -182,5 +267,7 @@ fun DownloadsScreen(openVideo: (String) -> Unit) {
                 }
             }
         }
+    }
+    }
     }
 }

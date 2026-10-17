@@ -2,7 +2,10 @@ package app.mixtape
 
 import android.app.Application
 import android.content.Context
+import app.mixtape.cloud.CloudSync
 import app.mixtape.core.net.NewPipeDownloader
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import app.mixtape.core.net.buildHttpClient
 import app.mixtape.data.LibraryRepository
 import app.mixtape.data.Settings
@@ -39,6 +42,17 @@ class MixtapeApp : Application() {
             ContentCountry(locale.country.ifBlank { "US" }),
         )
         DownloadController.createChannel(this)
+
+        val c = container
+        c.library.onPlaylistDeleted = { syncId -> c.cloud.onPlaylistDeleted(syncId) }
+        c.downloads.onDeleted = { key -> c.cloud.onDownloadDeleted(key) }
+        c.cloud.start(
+            merge(
+                c.library.likedKeys().map { it as Any },
+                c.library.playlists().map { it as Any },
+                c.downloads.doneKeys().map { it as Any },
+            )
+        )
     }
 }
 
@@ -62,6 +76,8 @@ class AppContainer(context: Context) {
     val spotify = SpotifyApi(spotifyAuth, http)
 
     val links = LinkResolver(http, spotify, spotifyAuth)
+
+    val cloud = CloudSync(context, http, db, library)
 
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)

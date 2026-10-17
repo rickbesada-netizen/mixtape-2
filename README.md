@@ -15,11 +15,32 @@ playback inside the app.
 4. Copy the APK to your phone and install it (allow "Install unknown apps" for your file manager).
 
 ### Option B: Android Studio on Windows
-1. File > Open > select this folder. Let Gradle sync (it downloads the Android SDK pieces it needs).
+1. File > Open > select this folder (the one with `settings.gradle.kts`). Let Gradle sync; it
+   downloads the Android SDK pieces it needs. Android Studio Ladybug (2024.2) or newer.
 2. Plug in your phone with USB debugging on and press Run, or use
    Build > Build App Bundle(s) / APK(s) > Build APK(s).
 
 Requirements: Android 8.0 (API 26) or newer.
+
+## Accounts and cloud sync (Supabase)
+Logging in keeps your liked songs, playlists (with their order), Spotify match fixes and your
+list of downloads in your own Supabase project, so they appear on any phone you log in on.
+Audio files are not uploaded: on a new phone, Downloads > **Restore all** downloads them again.
+
+One-time setup:
+1. Create a free project at https://supabase.com.
+2. SQL Editor > New query > paste `supabase/schema.sql` > Run.
+3. Authentication > Sign In / Providers > Email: for the simplest setup, turn off
+   "Confirm email" (otherwise new users must click the link in their email before logging in).
+4. Project Settings > API: copy the **Project URL** and the **anon public** key.
+5. Put them into the build so every install connects automatically. On GitHub: repo
+   Settings > Secrets and variables > Actions > New repository secret, add `SUPABASE_URL` and
+   `SUPABASE_ANON_KEY`, then re-run the build. In Android Studio: add them to
+   `gradle.properties` as `SUPABASE_URL=...` and `SUPABASE_ANON_KEY=...`.
+   (They can also be typed into the app: Settings > Account > Server settings.)
+
+The anon key is meant to be public; row level security in `schema.sql` keeps each user's data
+private to them.
 
 ## Spotify setup (optional)
 Spotify's Web API only gives access to apps registered by each developer, so you use your own:
