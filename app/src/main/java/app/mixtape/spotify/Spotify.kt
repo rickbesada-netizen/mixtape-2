@@ -193,6 +193,35 @@ class SpotifyApi(private val auth: SpotifyAuth, private val http: OkHttpClient) 
 
     suspend fun savedTracks(): List<Track> = pagedTracks("https://api.spotify.com/v1/me/tracks?limit=50")
 
+    suspend fun track(id: String): Track =
+        parseTrack(get("https://api.spotify.com/v1/tracks/$id")) ?: throw IOException("Spotify track not available")
+
+    /** Album info plus its tracks (album tracks come without album details, so we add them). */
+    suspend fun album(id: String): Pair<SpotifyPlaylist, List<Track>> {
+        val a = get("https://api.spotify.com/v1/albums/$id")
+        val info = SpotifyPlaylist(
+            id = id,
+            name = a.optString("name", "Album"),
+            owner = a.optJSONArray("artists")?.optJSONObject(0)?.optString("name").orEmpty(),
+            trackCount = a.optInt("total_tracks"),
+            imageUrl = a.optJSONArray("images")?.optJSONObject(0)?.optString("url"),
+        )
+        val albumStub = JSONObject().put("name", info.name).put("images", a.optJSONArray("images"))
+        val out = mutableListOf<Track>()
+        var page: JSONObject? = a.optJSONObject("tracks")
+        while (page != null) {
+            val items = page.optJSONArray("items")
+            if (items != null) for (i in 0 until items.length()) {
+                val t = items.optJSONObject(i) ?: continue
+                if (t.optJSONObject("album") == null) t.put("album", albumStub)
+                parseTrack(t)?.let { out += it }
+            }
+            val next = page.optString("next").takeIf { it.isNotEmpty() && it != "null" }
+            page = next?.let { get(it) }
+        }
+        return info to out
+    }
+
     private suspend fun pagedTracks(first: String): List<Track> {
         val out = mutableListOf<Track>()
         var url: String? = first

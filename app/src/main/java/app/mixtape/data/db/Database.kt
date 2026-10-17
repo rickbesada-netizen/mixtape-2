@@ -63,6 +63,9 @@ object PlaylistOrigin {
     const val LOCAL = "local"
     const val SPOTIFY = "spotify"
     const val CSV = "csv"
+
+    /** Saved from a YouTube / SoundCloud / Spotify link or search result; externalId is the URL. */
+    const val LINK = "link"
 }
 
 @Entity(tableName = "playlists", indices = [Index("externalId")])

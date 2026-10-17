@@ -65,6 +65,8 @@ interface TrackActions {
     fun download(tracks: List<Track>)
     fun addToPlaylist(track: Track)
     fun fixMatch(track: Track)
+    fun openLink(text: String)
+    fun openCollection(url: String)
 }
 
 val LocalTrackActions = compositionLocalOf<TrackActions> { error("No TrackActions") }

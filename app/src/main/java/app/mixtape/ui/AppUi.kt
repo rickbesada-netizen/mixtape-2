@@ -55,6 +55,8 @@ import app.mixtape.ui.components.LocalContainer
 import app.mixtape.ui.components.LocalTrackActions
 import app.mixtape.ui.components.PlaylistPickerDialog
 import app.mixtape.ui.components.TrackActions
+import app.mixtape.source.LinkResult
+import app.mixtape.ui.screens.CollectionScreen
 import app.mixtape.ui.screens.DownloadsScreen
 import app.mixtape.ui.screens.LibraryScreen
 import app.mixtape.ui.screens.MatchScreen
@@ -118,6 +120,30 @@ fun MixtapeAppUi(container: AppContainer) {
             override fun addToPlaylist(track: Track) {
                 pickerFor = track
             }
+            override fun openLink(text: String) {
+                scope.launch {
+                    val wait = launch { snackbar.showSnackbar("Opening link...") }
+                    runCatching { container.links.resolve(text) }
+                        .onSuccess { r ->
+                            wait.cancel()
+                            when (r) {
+                                is LinkResult.Single -> {
+                                    container.library.saveTracks(listOf(r.track))
+                                    container.player.playTracks(listOf(r.track), 0)
+                                    snackbar.showSnackbar("Playing ${r.track.title}")
+                                }
+                                is LinkResult.Collection -> openCollection(r.detail.info.url)
+                            }
+                        }
+                        .onFailure {
+                            wait.cancel()
+                            snackbar.showSnackbar(it.message ?: "Couldn't open that link")
+                        }
+                }
+            }
+            override fun openCollection(url: String) {
+                nav.navigate("collection/" + URLEncoder.encode(url, "UTF-8"))
+            }
             override fun fixMatch(track: Track) {
                 scope.launch {
                     container.library.saveTracks(listOf(track))
@@ -125,6 +151,14 @@ fun MixtapeAppUi(container: AppContainer) {
                 }
             }
         }
+    }
+
+    // Links shared into the app (Share > Mixtape) open as soon as the UI is up.
+    val pendingLink by container.pendingLink.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingLink) {
+        val link = pendingLink ?: return@LaunchedEffect
+        container.pendingLink.value = null
+        actions.openLink(link)
     }
 
     CompositionLocalProvider(LocalContainer provides container, LocalTrackActions provides actions) {
@@ -165,7 +199,14 @@ fun MixtapeAppUi(container: AppContainer) {
                 startDestination = "search",
                 modifier = Modifier.padding(padding),
             ) {
-                composable("search") { SearchScreen() }
+                composable("search") { SearchScreen(openCollection = { actions.openCollection(it) }) }
+                composable("collection/{url}") { entry ->
+                    CollectionScreen(
+                        url = java.net.URLDecoder.decode(entry.arguments?.getString("url") ?: "", "UTF-8"),
+                        onBack = { nav.popBackStack() },
+                        openSavedPlaylist = { nav.navigate("playlist/$it") },
+                    )
+                }
                 composable("library") {
                     LibraryScreen(
                         openPlaylist = { nav.navigate("playlist/$it") },

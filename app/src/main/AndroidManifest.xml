@@ -30,6 +30,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Share > Mixtape from YouTube, Spotify, SoundCloud or a browser -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
             <!-- Spotify OAuth (PKCE) redirect: mixtape-auth://callback -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

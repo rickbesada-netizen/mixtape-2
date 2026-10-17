@@ -153,6 +153,7 @@ fun LibraryScreen(
                 supportingContent = {
                     val origin = when (p.playlist.origin) {
                         PlaylistOrigin.SPOTIFY -> "Spotify · "
+                        PlaylistOrigin.LINK -> "Saved link · "
                         PlaylistOrigin.CSV -> "CSV · "
                         else -> ""
                     }
@@ -207,15 +208,18 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
                 val p = playlist
-                if (p?.origin == PlaylistOrigin.SPOTIFY && p.externalId != null) {
+                if (p != null && (p.origin == PlaylistOrigin.SPOTIFY || p.origin == PlaylistOrigin.LINK) && p.externalId != null) {
                     IconButton(enabled = !syncing, onClick = {
                         syncing = true
                         scope.launch {
                             runCatching {
-                                val list = if (p.externalId == SPOTIFY_LIKED_ID) container.spotify.savedTracks()
-                                else container.spotify.playlistTracks(p.externalId)
+                                val list = when {
+                                    p.origin == PlaylistOrigin.LINK -> container.links.refreshCollection(p.externalId).tracks
+                                    p.externalId == SPOTIFY_LIKED_ID -> container.spotify.savedTracks()
+                                    else -> container.spotify.playlistTracks(p.externalId)
+                                }
                                 container.library.upsertImportedPlaylist(
-                                    PlaylistOrigin.SPOTIFY, p.externalId, p.name, p.artworkUrl, list
+                                    p.origin, p.externalId, p.name, p.artworkUrl, list
                                 )
                             }.onFailure { Toast.makeText(context, it.message, Toast.LENGTH_LONG).show() }
                             syncing = false

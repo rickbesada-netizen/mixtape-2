@@ -49,11 +49,25 @@ data class ResolvedStream(
     val expiresAtMs: Long,
 )
 
-enum class SearchFilter(val label: String) {
-    YT_MUSIC_SONGS("YT Music"),
-    YT_VIDEOS("YouTube"),
+enum class SearchFilter(val label: String, val collections: Boolean = false) {
+    YT_MUSIC_SONGS("Songs"),
+    YT_VIDEOS("Videos"),
+    YT_MUSIC_ALBUMS("Albums", collections = true),
+    YT_PLAYLISTS("Playlists", collections = true),
     SOUNDCLOUD("SoundCloud"),
+    SOUNDCLOUD_PLAYLISTS("SC playlists", collections = true),
 }
+
+/** A playlist or album found in search or from a pasted link (not yet saved to the library). */
+data class RemoteCollection(
+    val url: String,
+    val title: String,
+    val subtitle: String,
+    val artworkUrl: String?,
+    val trackCount: Long = -1,
+)
+
+data class CollectionDetail(val info: RemoteCollection, val tracks: List<Track>)
 
 fun formatDuration(sec: Long): String {
     if (sec <= 0) return ""

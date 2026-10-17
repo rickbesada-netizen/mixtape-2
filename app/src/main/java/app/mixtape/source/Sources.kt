@@ -169,6 +169,10 @@ class SourceRegistry(val youtube: YouTubeSource, val soundcloud: SoundCloudSourc
 
     suspend fun search(query: String, filter: SearchFilter): List<Track> = when (filter) {
         SearchFilter.SOUNDCLOUD -> soundcloud.search(query, filter)
-        else -> youtube.search(query, filter)
+        SearchFilter.YT_VIDEOS -> youtube.search(query, filter)
+        else -> youtube.search(query, SearchFilter.YT_MUSIC_SONGS)
     }
+
+    suspend fun searchCollections(query: String, filter: SearchFilter) =
+        NewPipeCollections.search(query, filter)
 }

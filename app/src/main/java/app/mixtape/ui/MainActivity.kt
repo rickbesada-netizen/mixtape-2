@@ -50,6 +50,14 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
+        if (intent.action == Intent.ACTION_SEND) {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            if (!text.isNullOrBlank()) {
+                (application as MixtapeApp).container.pendingLink.value = text
+            }
+            setIntent(Intent(this, MainActivity::class.java))
+            return
+        }
         val data = intent.data ?: return
         if (data.scheme == "mixtape-auth") {
             val container = (application as MixtapeApp).container

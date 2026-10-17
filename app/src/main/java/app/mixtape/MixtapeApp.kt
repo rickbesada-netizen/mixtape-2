@@ -12,11 +12,13 @@ import app.mixtape.download.DownloadController
 import app.mixtape.matcher.TrackMatcher
 import app.mixtape.player.PlayerConnection
 import app.mixtape.player.StreamResolver
+import app.mixtape.source.LinkResolver
 import app.mixtape.source.SoundCloudSource
 import app.mixtape.source.SourceRegistry
 import app.mixtape.source.YouTubeSource
 import app.mixtape.spotify.SpotifyApi
 import app.mixtape.spotify.SpotifyAuth
+import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
@@ -58,6 +60,11 @@ class AppContainer(context: Context) {
 
     val spotifyAuth = SpotifyAuth(context, http)
     val spotify = SpotifyApi(spotifyAuth, http)
+
+    val links = LinkResolver(http, spotify, spotifyAuth)
+
+    /** A link shared into the app from another app, waiting to be opened by the UI. */
+    val pendingLink = MutableStateFlow<String?>(null)
 
     val player = PlayerConnection(context)
 }
