@@ -130,7 +130,7 @@ fun DownloadsScreen(openVideo: (String) -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "MP4 · " + "%.1f MB".format(d.download.bytesTotal / 1_048_576.0),
+                            "Video · " + "%.1f MB".format(d.download.bytesTotal / 1_048_576.0),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -142,7 +142,7 @@ fun DownloadsScreen(openVideo: (String) -> Unit) {
                                 .onSuccess { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
                                 .onFailure { Toast.makeText(context, "Couldn't save: ${it.message}", Toast.LENGTH_LONG).show() }
                         }
-                    }) { Icon(Icons.Filled.SaveAlt, "Save MP4 to phone") }
+                    }) { Icon(Icons.Filled.SaveAlt, "Save to phone") }
                     IconButton(onClick = { container.downloads.delete(d.download.trackKey) }) {
                         Icon(Icons.Filled.Delete, "Delete download")
                     }

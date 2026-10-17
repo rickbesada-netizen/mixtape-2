@@ -12,18 +12,21 @@ import java.io.IOException
 import java.io.OutputStream
 import javax.crypto.SecretKey
 
-/** Decrypts a downloaded video and saves it as a normal .mp4 the phone's gallery can see. */
+/** Decrypts a downloaded video and saves it as a normal .mp4/.webm the phone's gallery can see. */
 object VideoExport {
 
     /** Returns a short description of where the file went. */
     suspend fun saveToPhone(context: Context, encrypted: File, key: SecretKey, title: String): String =
         withContext(Dispatchers.IO) {
-            val name = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(100).ifBlank { "video" } + ".mp4"
+            val webm = isWebm(encrypted, key)
+            val ext = if (webm) "webm" else "mp4"
+            val mime = if (webm) "video/webm" else "video/mp4"
+            val name = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(100).ifBlank { "video" } + "." + ext
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
                 val values = ContentValues().apply {
                     put(MediaStore.Video.Media.DISPLAY_NAME, name)
-                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.MIME_TYPE, mime)
                     put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Mixtape")
                     put(MediaStore.Video.Media.IS_PENDING, 1)
                 }
@@ -46,6 +49,15 @@ object VideoExport {
                 out.outputStream().use { decryptTo(encrypted, key, it) }
                 "Saved to ${out.absolutePath}"
             }
+        }
+
+    /** WebM/Matroska files start with the EBML magic bytes 1A 45 DF A3. */
+    fun isWebm(encrypted: File, key: SecretKey): Boolean =
+        EncryptedFileReader(encrypted, key).use { r ->
+            r.seek(0)
+            val head = ByteArray(4)
+            r.read(head, 0, 4) == 4 &&
+                head[0] == 0x1A.toByte() && head[1] == 0x45.toByte() && head[2] == 0xDF.toByte() && head[3] == 0xA3.toByte()
         }
 
     private fun decryptTo(encrypted: File, key: SecretKey, out: OutputStream) {

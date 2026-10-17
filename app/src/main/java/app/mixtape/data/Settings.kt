@@ -22,6 +22,15 @@ class Settings(context: Context) {
     /** Max video height for playback and MP4 downloads: 360, 480, 720 or 1080. */
     val videoQuality: StateFlow<Int> = _videoQuality.asStateFlow()
 
+    private val _hiResAsMp4 = MutableStateFlow(prefs.getBoolean("hires_mp4", false))
+    /** Convert 1440p/4K (VP9) downloads to MP4 on the phone instead of keeping them as WebM. */
+    val hiResAsMp4: StateFlow<Boolean> = _hiResAsMp4.asStateFlow()
+
+    fun setHiResAsMp4(v: Boolean) {
+        prefs.edit().putBoolean("hires_mp4", v).apply()
+        _hiResAsMp4.value = v
+    }
+
     fun setVideoQuality(h: Int) {
         prefs.edit().putInt("video_quality", h).apply()
         _videoQuality.value = h

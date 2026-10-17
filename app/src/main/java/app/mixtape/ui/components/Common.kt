@@ -182,7 +182,7 @@ fun TrackRow(
                         onClick = { menu = false; actions.watchVideo(track) },
                     )
                     DropdownMenuItem(
-                        text = { Text("Download video (MP4)") },
+                        text = { Text("Download video") },
                         leadingIcon = { Icon(Icons.Filled.VideoFile, null) },
                         onClick = { menu = false; actions.downloadVideo(track) },
                     )

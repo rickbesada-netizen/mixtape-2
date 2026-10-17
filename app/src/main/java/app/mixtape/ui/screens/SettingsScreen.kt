@@ -34,6 +34,7 @@ fun SettingsScreen() {
     val quality by container.settings.quality.collectAsStateWithLifecycle()
     val wifiOnly by container.settings.wifiOnlyDownloads.collectAsStateWithLifecycle()
     val videoQuality by container.settings.videoQuality.collectAsStateWithLifecycle()
+    val hiResMp4 by container.settings.hiResAsMp4.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         SectionTitle("Settings")
@@ -61,13 +62,26 @@ fun SettingsScreen() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
-        listOf(360, 480, 720, 1080).forEach { h ->
+        listOf(360, 480, 720, 1080, 1440, 2160).forEach { h ->
             ListItem(
-                headlineContent = { Text("${h}p") },
+                headlineContent = { Text(if (h == 2160) "4K (2160p)" else "${h}p") },
+                supportingContent = if (h >= 1440) {
+                    { Text("Needs a phone that can play VP9 at this size. Downloads save as WebM unless converted below.") }
+                } else null,
                 leadingContent = { RadioButton(selected = videoQuality == h, onClick = null) },
                 modifier = Modifier.clickable { container.settings.setVideoQuality(h) },
             )
         }
+        ListItem(
+            headlineContent = { Text("Convert 1440p / 4K downloads to MP4") },
+            supportingContent = {
+                Text(
+                    "Off: saved as WebM straight away, original quality. On: re-encoded to MP4 on your phone " +
+                        "after downloading, slower and uses battery, but plays in any app."
+                )
+            },
+            trailingContent = { Switch(checked = hiResMp4, onCheckedChange = { container.settings.setHiResAsMp4(it) }) },
+        )
         HorizontalDivider()
 
         ListItem(

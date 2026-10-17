@@ -24,6 +24,7 @@ import app.mixtape.core.net.YoutubeStreamHttp
 import app.mixtape.core.net.executeChecked
 import app.mixtape.core.net.rangedGet
 import app.mixtape.data.LibraryRepository
+import app.mixtape.source.VideoCodec
 import app.mixtape.source.YouTubeVideo
 import app.mixtape.data.Settings
 import app.mixtape.data.db.DownloadDao
@@ -308,33 +309,51 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
 
     private var lastPct = -1
 
-    /** Downloads video + audio, merges them into one MP4, then stores it encrypted like songs. */
+    /**
+     * Downloads video + audio, merges them without re-encoding (MP4 for H.264, WebM for 1440p/4K
+     * VP9), optionally converts WebM to MP4, then stores the result encrypted like songs.
+     */
     private suspend fun downloadVideo(key: String, file: File, title: String?): Long = withContext(Dispatchers.IO) {
         val options = YouTubeVideo.options(Track.sourceIdOf(key))
-        val choice = options.pick(container.settings.videoQuality.value)
+        val choice = options.pickDownload(container.settings.videoQuality.value)
+            ?: throw IOException("This video has no downloadable quality")
         val label = title ?: options.title
         val tmpDir = File(applicationContext.cacheDir, "video-dl").apply { mkdirs() }
-        val base = DownloadController.sha1(key) + "_" + choice.height
-        val videoFile = File(tmpDir, "$base.v.mp4")
-        val audioFile = File(tmpDir, "$base.a.m4a")
-        val outFile = File(tmpDir, "$base.out.mp4")
+        val base = DownloadController.sha1(key) + "_" + choice.height + "_" + choice.codec.name
+        val videoFile = File(tmpDir, "$base.v")
+        val audioFile = File(tmpDir, "$base.a")
+        val mergedFile = File(tmpDir, "$base.merged.${choice.downloadExtension}")
+        val convertedFile = File(tmpDir, "$base.converted.mp4")
 
-        val videoShare = if (choice.audioUrl == null || choice.muxed) 0.95f else 0.8f
+        val convert = choice.codec == VideoCodec.VP9 && container.settings.hiResAsMp4.value
+        val downloadShare = if (convert) 0.5f else 0.95f
+        val audioUrl = choice.downloadAudioUrl
+
+        val videoShare = if (choice.muxed || audioUrl == null) downloadShare else downloadShare * 0.85f
         fetchPlain(choice.videoUrl, videoFile) { done, total -> report(key, label, 0f, videoShare, done, total) }
 
-        val audioUrl = choice.audioUrl
-        val merged = if (choice.muxed || audioUrl == null) videoFile else {
-            fetchPlain(audioUrl, audioFile) { done, total -> report(key, label, 0.8f, 0.15f, done, total) }
-            outFile.delete()
-            VideoMuxer.mux(videoFile, audioFile, outFile)
-            outFile
+        var result = if (choice.muxed || audioUrl == null) videoFile else {
+            fetchPlain(audioUrl, audioFile) { done, total ->
+                report(key, label, videoShare, downloadShare - videoShare, done, total)
+            }
+            mergedFile.delete()
+            VideoMuxer.mux(videoFile, audioFile, mergedFile, webm = choice.codec == VideoCodec.VP9)
+            mergedFile
+        }
+
+        if (convert) {
+            runCatching { setForeground(foregroundInfo("Converting to MP4: $label", 50)) }
+            VideoConverter.toMp4(applicationContext, result, convertedFile, choice.height) { p ->
+                report(key, label, downloadShare, 0.45f, (p * 1000).toLong(), 1000L)
+            }
+            result = convertedFile
         }
 
         file.delete()
         var size = 0L
         val buffer = ByteArray(256 * 1024)
         EncryptedFileWriter(file, container.crypto.dataKey, 0).use { writer ->
-            merged.inputStream().use { input ->
+            result.inputStream().use { input ->
                 while (true) {
                     val n = input.read(buffer)
                     if (n < 0) break
@@ -343,9 +362,7 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
                 }
             }
         }
-        videoFile.delete()
-        audioFile.delete()
-        outFile.delete()
+        listOf(videoFile, audioFile, mergedFile, convertedFile).forEach { it.delete() }
         size
     }
 

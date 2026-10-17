@@ -8,9 +8,9 @@ import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
 
-/** Merges a video-only MP4 and an M4A audio file into one MP4 without re-encoding. */
+/** Merges separate video and audio files into one MP4 (H.264+AAC) or WebM (VP9+Opus) without re-encoding. */
 object VideoMuxer {
-    fun mux(video: File, audio: File, out: File) {
+    fun mux(video: File, audio: File, out: File, webm: Boolean = false) {
         val videoEx = MediaExtractor()
         val audioEx = MediaExtractor()
         var muxer: MediaMuxer? = null
@@ -22,7 +22,10 @@ object VideoMuxer {
             videoEx.selectTrack(vTrack)
             audioEx.selectTrack(aTrack)
 
-            val m = MediaMuxer(out.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val m = MediaMuxer(
+                out.absolutePath,
+                if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
+            )
             muxer = m
             val vOut = m.addTrack(videoEx.getTrackFormat(vTrack))
             val aOut = m.addTrack(audioEx.getTrackFormat(aTrack))

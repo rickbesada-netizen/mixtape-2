@@ -93,6 +93,7 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val videoKey = Track.keyOf(SourceType.YOUTUBE_VIDEO, videoId)
     val maxHeight by container.settings.videoQuality.collectAsStateWithLifecycle()
+    val hiResMp4 by container.settings.hiResAsMp4.collectAsStateWithLifecycle()
     val doneFlow = remember { container.downloads.doneKeys() }
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
 
@@ -194,7 +195,11 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         o.choices.forEach { c ->
-                            FilterChip(selected = selected == c, onClick = { selected = c }, label = { Text(c.label) })
+                            FilterChip(
+                                selected = selected == c,
+                                onClick = { selected = c },
+                                label = { Text(if (c.height >= 1440) "${c.label} · ${c.codec.label}" else c.label) },
+                            )
                         }
                     }
                 } else {
@@ -208,10 +213,12 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val isDone = videoKey in downloaded
-                if (!isDone && track != null) {
+                val dl = o?.pickDownload(maxHeight)
+                if (!isDone && track != null && dl != null) {
+                    val format = if (dl.codec == app.mixtape.source.VideoCodec.VP9 && !hiResMp4) "WebM" else "MP4"
                     FilledTonalButton(onClick = { actions.downloadVideo(track) }) {
                         Icon(Icons.Filled.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
-                        Text("Download MP4 (${o?.pick(maxHeight)?.label ?: ""})")
+                        Text("Download $format (${dl.label})")
                     }
                 }
                 if (isDone) {
@@ -224,7 +231,7 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                                 .onFailure { Toast.makeText(context, "Couldn't save: ${it.message}", Toast.LENGTH_LONG).show() }
                         }
                     }) {
-                        Icon(Icons.Filled.SaveAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Save MP4 to phone")
+                        Icon(Icons.Filled.SaveAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Save to phone")
                     }
                 }
                 if (track != null) {
@@ -240,7 +247,8 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                 TextButton(onClick = onBack) { Text("Go back") }
             }
             Text(
-                "Downloads are saved inside the app. Use \"Save MP4 to phone\" to copy one to your gallery.",
+                "Downloads are saved inside the app. Use \"Save to phone\" to copy one to your gallery. " +
+                    "1440p and 4K need a phone that can decode VP9 or AV1, so those qualities only appear if yours can.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 16.dp),
