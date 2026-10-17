@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,3 +49,26 @@ jobs:
         with:
           name: mixtape-release-apk
           path: app/build/outputs/apk/release/*.apk
+
+      # Publish the APK on the repo's Releases page so it can be downloaded directly on a phone.
+      - name: Prepare download files
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/*.apk dist/Mixtape.apk
+          if ls app/build/outputs/apk/release/*.apk >/dev/null 2>&1; then
+            cp app/build/outputs/apk/release/*.apk dist/Mixtape-small.apk
+          fi
+
+      - name: Publish latest release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Mixtape (latest build)
+          body: |
+            Built from commit ${{ github.sha }}.
+            Install Mixtape.apk. Mixtape-small.apk is a smaller optimised build.
+          prerelease: false
+          make_latest: true
+          files: dist/*.apk
