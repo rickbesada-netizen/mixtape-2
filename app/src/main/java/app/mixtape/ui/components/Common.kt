@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.OndemandVideo
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -66,6 +68,8 @@ interface TrackActions {
     fun addToPlaylist(track: Track)
     fun fixMatch(track: Track)
     fun openLink(text: String)
+    fun watchVideo(track: Track)
+    fun downloadVideo(track: Track)
     fun openCollection(url: String)
 }
 
@@ -169,6 +173,18 @@ fun TrackRow(
                         text = { Text("Download") },
                         leadingIcon = { Icon(Icons.Filled.Download, null) },
                         onClick = { menu = false; actions.download(listOf(track)) },
+                    )
+                }
+                if (track.source == app.mixtape.core.model.SourceType.YOUTUBE) {
+                    DropdownMenuItem(
+                        text = { Text("Watch video") },
+                        leadingIcon = { Icon(Icons.Filled.OndemandVideo, null) },
+                        onClick = { menu = false; actions.watchVideo(track) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Download video (MP4)") },
+                        leadingIcon = { Icon(Icons.Filled.VideoFile, null) },
+                        onClick = { menu = false; actions.downloadVideo(track) },
                     )
                 }
                 if (track.source == app.mixtape.core.model.SourceType.SPOTIFY) {

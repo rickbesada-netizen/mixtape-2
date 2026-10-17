@@ -33,6 +33,7 @@ fun SettingsScreen() {
     val scope = rememberCoroutineScope()
     val quality by container.settings.quality.collectAsStateWithLifecycle()
     val wifiOnly by container.settings.wifiOnlyDownloads.collectAsStateWithLifecycle()
+    val videoQuality by container.settings.videoQuality.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         SectionTitle("Settings")
@@ -49,6 +50,22 @@ fun SettingsScreen() {
                     container.settings.setQuality(q)
                     container.resolver.invalidateAll()
                 },
+            )
+        }
+        HorizontalDivider()
+
+        Text("Video quality", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        Text(
+            "Highest quality for watching and MP4 downloads (uses the next one down if a video doesn't have it)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        listOf(360, 480, 720, 1080).forEach { h ->
+            ListItem(
+                headlineContent = { Text("${h}p") },
+                leadingContent = { RadioButton(selected = videoQuality == h, onClick = null) },
+                modifier = Modifier.clickable { container.settings.setVideoQuality(h) },
             )
         }
         HorizontalDivider()

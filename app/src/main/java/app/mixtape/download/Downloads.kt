@@ -24,6 +24,7 @@ import app.mixtape.core.net.YoutubeStreamHttp
 import app.mixtape.core.net.executeChecked
 import app.mixtape.core.net.rangedGet
 import app.mixtape.data.LibraryRepository
+import app.mixtape.source.YouTubeVideo
 import app.mixtape.data.Settings
 import app.mixtape.data.db.DownloadDao
 import app.mixtape.data.db.DownloadEntity
@@ -156,6 +157,11 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
             dao.setState(key, DownloadState.RUNNING, null)
             try {
                 val file = container.downloads.fileFor(key)
+                if (SourceType.fromKey(key) == SourceType.YOUTUBE_VIDEO) {
+                    val size = downloadVideo(key, file, track?.title)
+                    dao.markDone(key, file.absolutePath, size)
+                    return@withPermit Result.success()
+                }
                 val playableKey = if (SourceType.fromKey(key) == SourceType.SPOTIFY) {
                     Track.keyOf(SourceType.YOUTUBE, container.matcher.resolveYoutubeId(key))
                 } else key
@@ -296,6 +302,103 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
             }
         }
         return done
+    }
+
+    // ------------------------------------------------------------------ MP4 video
+
+    private var lastPct = -1
+
+    /** Downloads video + audio, merges them into one MP4, then stores it encrypted like songs. */
+    private suspend fun downloadVideo(key: String, file: File, title: String?): Long = withContext(Dispatchers.IO) {
+        val options = YouTubeVideo.options(Track.sourceIdOf(key))
+        val choice = options.pick(container.settings.videoQuality.value)
+        val label = title ?: options.title
+        val tmpDir = File(applicationContext.cacheDir, "video-dl").apply { mkdirs() }
+        val base = DownloadController.sha1(key) + "_" + choice.height
+        val videoFile = File(tmpDir, "$base.v.mp4")
+        val audioFile = File(tmpDir, "$base.a.m4a")
+        val outFile = File(tmpDir, "$base.out.mp4")
+
+        val videoShare = if (choice.audioUrl == null || choice.muxed) 0.95f else 0.8f
+        fetchPlain(choice.videoUrl, videoFile) { done, total -> report(key, label, 0f, videoShare, done, total) }
+
+        val audioUrl = choice.audioUrl
+        val merged = if (choice.muxed || audioUrl == null) videoFile else {
+            fetchPlain(audioUrl, audioFile) { done, total -> report(key, label, 0.8f, 0.15f, done, total) }
+            outFile.delete()
+            VideoMuxer.mux(videoFile, audioFile, outFile)
+            outFile
+        }
+
+        file.delete()
+        var size = 0L
+        val buffer = ByteArray(256 * 1024)
+        EncryptedFileWriter(file, container.crypto.dataKey, 0).use { writer ->
+            merged.inputStream().use { input ->
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    writer.write(buffer, 0, n)
+                    size += n
+                }
+            }
+        }
+        videoFile.delete()
+        audioFile.delete()
+        outFile.delete()
+        size
+    }
+
+    private suspend fun report(key: String, title: String, base: Float, span: Float, done: Long, total: Long) {
+        if (total <= 0) return
+        val progress = base + span * (done.toFloat() / total)
+        val pct = (progress * 100).toInt()
+        if (pct == lastPct) return
+        lastPct = pct
+        dao.setProgress(key, progress, done, total)
+        runCatching { setForeground(foregroundInfo(title, pct)) }
+    }
+
+    /** Ranged download into a plain temp file, resuming from whatever is already there. */
+    private suspend fun fetchPlain(url: String, file: File, onProgress: suspend (Long, Long) -> Unit) {
+        var done = if (file.exists()) file.length() else 0L
+        var total = -1L
+        val buffer = ByteArray(64 * 1024)
+        while (total < 0 || done < total) {
+            currentCoroutineContext().ensureActive()
+            val request = YoutubeStreamHttp.build(url, done, done + CHUNK - 1)
+            val response = try {
+                http.executeChecked(request)
+            } catch (e: HttpStatusException) {
+                if (e.code == 416 && done > 0) break else throw e
+            }
+            response.use { r ->
+                val body = r.body ?: throw IOException("Empty response")
+                val append = r.code == 206
+                if (append) {
+                    total = r.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: total
+                } else {
+                    total = body.contentLength().takeIf { it > 0 } ?: -1L
+                    done = 0
+                }
+                var got = 0L
+                java.io.FileOutputStream(file, append).use { out ->
+                    val input = body.byteStream()
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                        done += n
+                        got += n
+                    }
+                }
+                onProgress(done, total)
+                if (got == 0L) {
+                    if (total < 0) total = done else throw IOException("Download stalled")
+                }
+                if (!append && total < 0) total = done
+            }
+        }
     }
 
     private fun fetchText(url: String): String =

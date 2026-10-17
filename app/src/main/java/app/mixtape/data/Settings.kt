@@ -18,6 +18,15 @@ class Settings(context: Context) {
     private val _wifiOnlyDownloads = MutableStateFlow(prefs.getBoolean("wifi_only", false))
     val wifiOnlyDownloads: StateFlow<Boolean> = _wifiOnlyDownloads.asStateFlow()
 
+    private val _videoQuality = MutableStateFlow(prefs.getInt("video_quality", 720))
+    /** Max video height for playback and MP4 downloads: 360, 480, 720 or 1080. */
+    val videoQuality: StateFlow<Int> = _videoQuality.asStateFlow()
+
+    fun setVideoQuality(h: Int) {
+        prefs.edit().putInt("video_quality", h).apply()
+        _videoQuality.value = h
+    }
+
     fun setQuality(q: StreamQuality) {
         prefs.edit().putString("quality", q.name).apply()
         _quality.value = q

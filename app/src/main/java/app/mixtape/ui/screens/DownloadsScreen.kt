@@ -14,6 +14,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
+import android.widget.Toast
+import app.mixtape.download.VideoExport
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,16 +40,20 @@ import app.mixtape.ui.components.LocalTrackActions
 import app.mixtape.ui.components.SectionTitle
 
 @Composable
-fun DownloadsScreen() {
+fun DownloadsScreen(openVideo: (String) -> Unit) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val flow = remember { container.downloads.all() }
     val downloads by flow.collectAsStateWithLifecycle(emptyList())
 
-    val done = downloads.filter { it.download.state == DownloadState.DONE && it.track != null }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val allDone = downloads.filter { it.download.state == DownloadState.DONE && it.track != null }
+    val videos = allDone.filter { it.download.trackKey.startsWith("ytv:") }
+    val done = allDone.filter { !it.download.trackKey.startsWith("ytv:") }
     val active = downloads.filter { it.download.state != DownloadState.DONE }
     val doneTracks = done.mapNotNull { it.track?.toTrack() }
-    val totalBytes = done.sumOf { it.download.bytesTotal }
+    val totalBytes = allDone.sumOf { it.download.bytesTotal }
 
     if (downloads.isEmpty()) {
         EmptyState("Downloaded songs play offline and stay inside the app. Use the menu on any song to download it.")
@@ -101,6 +109,42 @@ fun DownloadsScreen() {
                     }
                     IconButton(onClick = { container.downloads.cancel(d.download.trackKey) }) {
                         Icon(Icons.Filled.Close, "Cancel")
+                    }
+                }
+            }
+        }
+        if (videos.isNotEmpty()) {
+            item { Text("Videos", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 16.dp, top = 12.dp)) }
+            items(videos, key = { "v-" + it.download.trackKey }) { d ->
+                val t = d.track!!
+                val id = d.download.trackKey.removePrefix("ytv:")
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { openVideo(id) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Artwork(t.artworkUrl, 44)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "MP4 · " + "%.1f MB".format(d.download.bytesTotal / 1_048_576.0),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = {
+                        scope.launch {
+                            val file = container.downloads.completedFile(d.download.trackKey) ?: return@launch
+                            runCatching { VideoExport.saveToPhone(context, file, container.crypto.dataKey, t.title) }
+                                .onSuccess { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                                .onFailure { Toast.makeText(context, "Couldn't save: ${it.message}", Toast.LENGTH_LONG).show() }
+                        }
+                    }) { Icon(Icons.Filled.SaveAlt, "Save MP4 to phone") }
+                    IconButton(onClick = { container.downloads.delete(d.download.trackKey) }) {
+                        Icon(Icons.Filled.Delete, "Delete download")
                     }
                 }
             }

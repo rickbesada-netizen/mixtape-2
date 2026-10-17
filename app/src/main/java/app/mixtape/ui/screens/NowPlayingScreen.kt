@@ -66,7 +66,7 @@ import app.mixtape.ui.components.LocalTrackActions
 import coil.compose.AsyncImage
 
 @Composable
-fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit) {
+fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVideo: (String) -> Unit) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val player = container.player
@@ -193,6 +193,9 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit) {
             }
         }
 
+        if (np.key.startsWith("yt:")) {
+            TextButton(onClick = { onWatchVideo(np.key.removePrefix("yt:")) }) { Text("Watch the video") }
+        }
         if (track?.source == SourceType.SPOTIFY) {
             TextButton(onClick = { onFixMatch(np.key) }) { Text("Wrong song? Fix the YouTube match") }
         }

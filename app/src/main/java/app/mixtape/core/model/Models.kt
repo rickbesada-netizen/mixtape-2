@@ -9,7 +9,10 @@ package app.mixtape.core.model
 enum class SourceType(val prefix: String, val label: String) {
     YOUTUBE("yt", "YouTube"),
     SOUNDCLOUD("sc", "SoundCloud"),
-    SPOTIFY("sp", "Spotify");
+    SPOTIFY("sp", "Spotify"),
+
+    /** A YouTube video kept as video (MP4 download / video player); sourceId is the video id. */
+    YOUTUBE_VIDEO("ytv", "Video");
 
     companion object {
         fun fromPrefix(prefix: String): SourceType =

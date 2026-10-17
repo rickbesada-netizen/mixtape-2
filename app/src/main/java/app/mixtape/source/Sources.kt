@@ -162,7 +162,7 @@ class SoundCloudSource : MusicSource {
 
 class SourceRegistry(val youtube: YouTubeSource, val soundcloud: SoundCloudSource) {
     fun forType(type: SourceType): MusicSource = when (type) {
-        SourceType.YOUTUBE -> youtube
+        SourceType.YOUTUBE, SourceType.YOUTUBE_VIDEO -> youtube
         SourceType.SOUNDCLOUD -> soundcloud
         SourceType.SPOTIFY -> throw IllegalArgumentException("Spotify tracks must be matched first")
     }

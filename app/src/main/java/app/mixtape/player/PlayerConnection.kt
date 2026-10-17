@@ -182,6 +182,10 @@ class PlayerConnection(private val context: Context) {
         }
     }
 
+    fun pause() {
+        controller?.pause()
+    }
+
     fun next() = withController { it.seekToNext() }
     fun previous() = withController { it.seekToPrevious() }
     fun seekTo(ms: Long) = withController { it.seekTo(ms) }

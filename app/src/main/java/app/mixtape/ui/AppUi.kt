@@ -66,6 +66,8 @@ import app.mixtape.ui.screens.SearchScreen
 import app.mixtape.ui.screens.SettingsScreen
 import app.mixtape.ui.screens.SmartListScreen
 import app.mixtape.ui.screens.SpotifyScreen
+import app.mixtape.ui.screens.VideoScreen
+import app.mixtape.core.model.SourceType
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
@@ -141,6 +143,17 @@ fun MixtapeAppUi(container: AppContainer) {
                         }
                 }
             }
+            override fun watchVideo(track: Track) {
+                scope.launch { container.library.saveTracks(listOf(track)) }
+                nav.navigate("video/" + URLEncoder.encode(track.sourceId, "UTF-8"))
+            }
+            override fun downloadVideo(track: Track) {
+                val video = track.copy(source = SourceType.YOUTUBE_VIDEO)
+                container.downloads.enqueue(listOf(video))
+                scope.launch {
+                    snackbar.showSnackbar("Downloading video (up to ${container.settings.videoQuality.value}p): ${track.title}")
+                }
+            }
             override fun openCollection(url: String) {
                 nav.navigate("collection/" + URLEncoder.encode(url, "UTF-8"))
             }
@@ -164,7 +177,7 @@ fun MixtapeAppUi(container: AppContainer) {
     CompositionLocalProvider(LocalContainer provides container, LocalTrackActions provides actions) {
         val backStack by nav.currentBackStackEntryAsState()
         val route = backStack?.destination?.route
-        val showChrome = route != "nowplaying"
+        val showChrome = route != "nowplaying" && route?.startsWith("video/") != true
 
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -215,7 +228,9 @@ fun MixtapeAppUi(container: AppContainer) {
                         openSpotify = { nav.navigate("spotify") },
                     )
                 }
-                composable("downloads") { DownloadsScreen() }
+                composable("downloads") {
+                    DownloadsScreen(openVideo = { id -> nav.navigate("video/" + URLEncoder.encode(id, "UTF-8")) })
+                }
                 composable("settings") { SettingsScreen() }
                 composable("spotify") {
                     SpotifyScreen(
@@ -241,9 +256,16 @@ fun MixtapeAppUi(container: AppContainer) {
                         onBack = { nav.popBackStack() },
                     )
                 }
+                composable("video/{id}") { entry ->
+                    VideoScreen(
+                        videoId = java.net.URLDecoder.decode(entry.arguments?.getString("id") ?: "", "UTF-8"),
+                        onBack = { nav.popBackStack() },
+                    )
+                }
                 composable("nowplaying") {
                     NowPlayingScreen(
                         onBack = { nav.popBackStack() },
+                        onWatchVideo = { id -> nav.navigate("video/" + URLEncoder.encode(id, "UTF-8")) },
                         onFixMatch = { key ->
                             nav.navigate("match/" + URLEncoder.encode(key, "UTF-8"))
                         },
