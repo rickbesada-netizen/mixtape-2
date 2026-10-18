@@ -90,9 +90,12 @@ class PlayerConnection(private val context: Context) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            val msg = error.cause?.message ?: error.message ?: "Playback error"
+            val botBlock = app.mixtape.core.net.YouTubeLimits.isBotBlock(error)
+            val msg = if (botBlock) app.mixtape.core.net.YouTubeLimits.FRIENDLY_MESSAGE
+            else error.cause?.message ?: error.message ?: "Playback error"
             _errors.tryEmit(msg)
             consecutiveErrors++
+            if (botBlock) return
             // Skip a track that cannot be played rather than stalling the queue (but don't
             // race through everything when the network is simply down).
             controller?.let { c ->

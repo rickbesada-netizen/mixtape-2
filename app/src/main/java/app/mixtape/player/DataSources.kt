@@ -11,6 +11,7 @@ import androidx.media3.datasource.TransferListener
 import app.mixtape.core.net.BROWSER_USER_AGENT
 import app.mixtape.core.net.HttpStatusException
 import app.mixtape.core.net.YoutubeStreamHttp
+import app.mixtape.core.net.YouTubeLimits
 import app.mixtape.core.net.executeChecked
 import app.mixtape.core.net.rangedGet
 import app.mixtape.download.EncryptedFileReader
@@ -83,10 +84,13 @@ class MixtapeDataSource(
 
     private fun openTrack(trackKey: String, dataSpec: DataSpec): Long {
         val target = try {
-            runBlocking { resolver.resolve(trackKey) }
-        } catch (e: IOException) {
-            throw e
+            runBlocking { resolver.resolve(trackKey) }.also { YouTubeLimits.clear() }
         } catch (e: Exception) {
+            if (YouTubeLimits.isBotBlock(e)) {
+                YouTubeLimits.markBlocked()
+                throw IOException(YouTubeLimits.FRIENDLY_MESSAGE, e)
+            }
+            if (e is IOException) throw e
             throw IOException(e.message ?: "Could not resolve stream", e)
         }
         val kind = dataSpec.uri.authority

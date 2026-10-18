@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -32,6 +33,10 @@ import app.mixtape.data.db.DownloadEntity
 import app.mixtape.data.db.DownloadState
 import app.mixtape.data.db.DownloadWithTrack
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import app.mixtape.core.net.YouTubeLimits
+import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -123,6 +128,7 @@ class DownloadController(
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(workDataOf(DownloadWorker.KEY to key))
             .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)
             .addTag(DownloadWorker.TAG)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(workName(key), policy, request)
@@ -158,7 +164,14 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
         val track = container.library.getTrack(key)
         runCatching { setForeground(foregroundInfo(track?.title ?: "Downloading", 0)) }
 
+        if (YouTubeLimits.isPaused() && SourceType.fromKey(key) != SourceType.SOUNDCLOUD) {
+            dao.setState(key, DownloadState.QUEUED, PAUSED_MESSAGE)
+            return Result.retry()
+        }
+
         return slots.withPermit {
+            // Space requests out a little: bursts of downloads are what trigger YouTube's bot check.
+            delay(1500L + Random.nextLong(2500L))
             dao.setState(key, DownloadState.RUNNING, null)
             try {
                 val file = container.downloads.fileFor(key)
@@ -187,7 +200,12 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (runAttemptCount < 2) {
+                if (YouTubeLimits.isBotBlock(e)) {
+                    // Not the song's fault: pause all YouTube downloads and keep retrying later.
+                    YouTubeLimits.markBlocked()
+                    dao.setState(key, DownloadState.QUEUED, PAUSED_MESSAGE)
+                    Result.retry()
+                } else if (runAttemptCount < 2) {
                     dao.setState(key, DownloadState.QUEUED, e.message)
                     Result.retry()
                 } else {
@@ -447,8 +465,10 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
         const val TAG = "mixtape-download"
         private const val CHUNK = 1L * 1024 * 1024
         private const val NOTIFICATION_BASE = 2000
+        const val PAUSED_MESSAGE =
+            "Paused: YouTube is rate-limiting this network. Retrying automatically. Switching Wi-Fi/mobile data helps."
 
         /** Max parallel downloads across the process. */
-        private val slots = Semaphore(3)
+        private val slots = Semaphore(2)
     }
 }
