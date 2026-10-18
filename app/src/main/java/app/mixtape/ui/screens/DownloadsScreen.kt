@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mixtape.AppContainer
 import app.mixtape.core.model.SourceType
 import app.mixtape.core.model.Track
+import app.mixtape.core.model.display
 import app.mixtape.data.db.DownloadState
 import app.mixtape.data.db.DownloadWithTrack
 import app.mixtape.data.db.PlaylistWithCount
@@ -301,7 +302,7 @@ private fun ActiveRow(d: DownloadWithTrack, container: AppContainer) {
         Artwork(t?.artworkUrl, 40)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(t?.title ?: d.download.trackKey, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t?.toTrack()?.display()?.title ?: d.download.trackKey, maxLines = 1, overflow = TextOverflow.Ellipsis)
             when (d.download.state) {
                 DownloadState.FAILED -> Text(
                     d.download.error ?: "Failed", color = MaterialTheme.colorScheme.error,
@@ -366,7 +367,7 @@ private fun VideoRow(
         Artwork(t.artworkUrl, 44)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t.toTrack().display().title, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 "Video · " + "%.1f MB".format(d.download.bytesTotal / 1_048_576.0),
                 style = MaterialTheme.typography.bodySmall,

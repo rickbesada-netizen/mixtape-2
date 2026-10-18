@@ -17,6 +17,7 @@ import androidx.media3.session.MediaSessionService
 import app.mixtape.MixtapeApp
 import app.mixtape.core.model.SourceType
 import app.mixtape.core.model.Track
+import app.mixtape.core.model.display
 import app.mixtape.ui.MainActivity
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -133,9 +134,10 @@ class PlaybackService : MediaSessionService() {
         /** What the UI sends to the session. */
         fun controllerItem(track: Track): MediaItem {
             val extras = Bundle().apply { putString("source", track.source.label) }
+            val shown = track.display()
             val meta = MediaMetadata.Builder()
-                .setTitle(track.title)
-                .setArtist(track.artist)
+                .setTitle(shown.title)
+                .setArtist(shown.artist)
                 .setAlbumTitle(track.album)
                 .setArtworkUri(track.artworkUrl?.let { android.net.Uri.parse(it) })
                 .setDurationMs(if (track.durationSec > 0) track.durationSec * 1000 else null)

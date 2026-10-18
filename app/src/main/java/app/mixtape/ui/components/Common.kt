@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import app.mixtape.AppContainer
 import app.mixtape.core.model.Track
 import app.mixtape.core.model.formatDuration
+import app.mixtape.core.model.display
 import app.mixtape.data.db.PlaylistWithCount
 import coil.compose.AsyncImage
 
@@ -116,15 +117,16 @@ fun TrackRow(
     ) {
         Artwork(track.artworkUrl, 48)
         Spacer(Modifier.width(12.dp))
+        val shown = remember(track) { track.display() }
         Column(Modifier.weight(1f)) {
             Text(
-                track.title,
+                shown.title,
                 style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             val sub = listOfNotNull(
-                track.artist.takeIf { it.isNotBlank() },
+                shown.artist.takeIf { it.isNotBlank() },
                 track.source.label,
                 formatDuration(track.durationSec).takeIf { it.isNotEmpty() },
             ).joinToString(" · ")

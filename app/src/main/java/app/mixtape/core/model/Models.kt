@@ -79,3 +79,35 @@ fun formatDuration(sec: Long): String {
     val s = sec % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
+
+/** How a track should read on screen: song name first, artist second. */
+data class DisplayInfo(val title: String, val artist: String)
+
+private val TITLE_SPLIT = Regex("\\s+[-–—]\\s+")
+private val NOISE_BRACKETS = Regex(
+    "(?i)\\s*[(\\[{][^)\\]}]*\\b(official|video|audio|lyrics?|visuali[sz]er|music video|mv|hd|hq|4k|clean|explicit|" +
+        "dirty|remaster(ed)?|full song|topic)\\b[^)\\]}]*[)\\]}]"
+)
+private val NOISE_TAIL = Regex("(?i)\\s*[|/]\\s*(official|lyrics?|audio|video).*$")
+
+/**
+ * YouTube and SoundCloud uploads are usually titled "Artist - Song (Official Video)". This turns
+ * that into title = "Song", artist = "Artist", and drops the noise in brackets. Spotify titles are
+ * already clean and pass through unchanged.
+ */
+fun Track.display(): DisplayInfo {
+    if (source == SourceType.SPOTIFY) return DisplayInfo(title, artist)
+    var t = title.replace(NOISE_BRACKETS, "").replace(NOISE_TAIL, "").trim()
+    var a = artist
+    val parts = TITLE_SPLIT.split(t, limit = 2)
+    if (parts.size == 2) {
+        val left = parts[0].trim()
+        val right = parts[1].trim()
+        if (left.isNotEmpty() && right.isNotEmpty() && left.length <= 80) {
+            t = right
+            a = left
+        }
+    }
+    t = t.trim().trim('"', '\'', '“', '”').ifEmpty { title }
+    return DisplayInfo(t, a)
+}

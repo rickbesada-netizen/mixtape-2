@@ -169,7 +169,7 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
             Column(Modifier.weight(1f)) {
                 Text(
                     np.title, style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     np.artist, style = MaterialTheme.typography.bodyMedium,
