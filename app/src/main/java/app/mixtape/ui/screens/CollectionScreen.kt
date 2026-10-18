@@ -158,7 +158,20 @@ fun CollectionScreen(url: String, onBack: () -> Unit, openSavedPlaylist: (Long) 
                                 Spacer(Modifier.width(6.dp))
                                 Text(if (savedId != null) "Saved" else "Save")
                             }
-                            FilledTonalButton(onClick = { actions.download(detail.tracks.filter { it.key !in downloaded }) }) {
+                            FilledTonalButton(onClick = {
+                                // Save the playlist first so Downloads can show it as one playlist.
+                                scope.launch {
+                                    val id = savedId ?: container.library.upsertImportedPlaylist(
+                                        origin = PlaylistOrigin.LINK,
+                                        externalId = detail.info.url,
+                                        name = detail.info.title,
+                                        artworkUrl = detail.info.artworkUrl,
+                                        list = detail.tracks,
+                                    )
+                                    savedId = id
+                                    actions.download(detail.tracks.filter { it.key !in downloaded })
+                                }
+                            }) {
                                 Icon(Icons.Filled.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Download")
                             }
                         }

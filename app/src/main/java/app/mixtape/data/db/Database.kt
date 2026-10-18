@@ -99,6 +99,8 @@ data class PlaylistWithCount(
     @Embedded val playlist: PlaylistEntity,
     val trackCount: Int,
     val downloadedCount: Int,
+    /** When the newest download in this playlist finished (null if none). */
+    val lastDownloadAt: Long?,
 )
 
 /** Which playlists a track appears in (for library-wide search results). */
@@ -217,7 +219,9 @@ abstract class PlaylistDao {
     @Query(
         "SELECT p.*, (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlistId = p.id) AS trackCount, " +
             "(SELECT COUNT(*) FROM playlist_tracks pt INNER JOIN downloads d ON d.trackKey = pt.trackKey " +
-            "WHERE pt.playlistId = p.id AND d.state = 'done') AS downloadedCount " +
+            "WHERE pt.playlistId = p.id AND d.state = 'done') AS downloadedCount, " +
+            "(SELECT MAX(d.createdAt) FROM playlist_tracks pt INNER JOIN downloads d ON d.trackKey = pt.trackKey " +
+            "WHERE pt.playlistId = p.id AND d.state = 'done') AS lastDownloadAt " +
             "FROM playlists p ORDER BY p.createdAt DESC"
     )
     abstract fun all(): Flow<List<PlaylistWithCount>>
@@ -236,6 +240,9 @@ abstract class PlaylistDao {
 
     @Query("SELECT * FROM playlists")
     abstract suspend fun allOnce(): List<PlaylistEntity>
+
+    @Query("SELECT DISTINCT trackKey FROM playlist_tracks")
+    abstract fun keysInPlaylists(): Flow<List<String>>
 
     @Query("SELECT * FROM playlists WHERE syncId = :syncId LIMIT 1")
     abstract suspend fun bySyncId(syncId: String): PlaylistEntity?

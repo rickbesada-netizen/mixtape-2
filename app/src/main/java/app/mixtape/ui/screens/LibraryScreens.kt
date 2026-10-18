@@ -41,6 +41,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -227,7 +228,7 @@ fun LibraryScreen(
 }
 
 @Composable
-fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
+fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Boolean = false) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val context = LocalContext.current
@@ -244,7 +245,11 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
-    val shown = remember(tracks, query) { filterTracks(tracks, query) }
+    var downloadedOnly by rememberSaveable { mutableStateOf(startDownloadedOnly) }
+    val shown = remember(tracks, query, downloadedOnly, downloaded) {
+        filterTracks(tracks, query).let { l -> if (downloadedOnly) l.filter { it.key in downloaded } else l }
+    }
+    val downloadedHere = tracks.count { it.key in downloaded }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -280,6 +285,18 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
         if (searching) {
             TrackSearchField(query, onChange = { query = it })
         }
+        if (downloadedHere > 0) {
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !downloadedOnly, onClick = { downloadedOnly = false },
+                    label = { Text("All (${tracks.size})") },
+                )
+                FilterChip(
+                    selected = downloadedOnly, onClick = { downloadedOnly = true },
+                    label = { Text("Downloaded ($downloadedHere)") },
+                )
+            }
+        }
         if (tracks.isEmpty()) {
             EmptyState("This playlist is empty.")
         } else {
@@ -290,7 +307,7 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit) {
                         Modifier.fillMaxWidth().padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Button(onClick = { actions.play(tracks, 0) }) {
+                        Button(onClick = { actions.play(shown, 0) }) {
                             Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play")
                         }
                         FilledTonalButton(onClick = {

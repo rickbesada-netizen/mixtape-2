@@ -229,7 +229,10 @@ fun MixtapeAppUi(container: AppContainer) {
                     )
                 }
                 composable("downloads") {
-                    DownloadsScreen(openVideo = { id -> nav.navigate("video/" + URLEncoder.encode(id, "UTF-8")) })
+                    DownloadsScreen(
+                        openVideo = { id -> nav.navigate("video/" + URLEncoder.encode(id, "UTF-8")) },
+                        openPlaylist = { id -> nav.navigate("playlist/$id?downloaded=true") },
+                    )
                 }
                 composable("settings") { SettingsScreen() }
                 composable("spotify") {
@@ -239,12 +242,16 @@ fun MixtapeAppUi(container: AppContainer) {
                     )
                 }
                 composable(
-                    "playlist/{id}",
-                    arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                    "playlist/{id}?downloaded={downloaded}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.LongType },
+                        navArgument("downloaded") { type = NavType.BoolType; defaultValue = false },
+                    ),
                 ) { entry ->
                     PlaylistScreen(
                         playlistId = entry.arguments?.getLong("id") ?: 0L,
                         onBack = { nav.popBackStack() },
+                        startDownloadedOnly = entry.arguments?.getBoolean("downloaded") ?: false,
                     )
                 }
                 composable("smart/{kind}") { entry ->
