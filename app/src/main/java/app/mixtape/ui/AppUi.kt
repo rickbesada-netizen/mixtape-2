@@ -330,7 +330,12 @@ private fun MiniPlayer(state: PlayerUiState, onOpen: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(np.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        if (state.isBuffering) "Loading..." else np.artist,
+                        when {
+                            state.isBuffering -> "Loading..."
+                            kotlin.math.abs(state.speed - 1f) > 0.001f ->
+                                np.artist + " · " + app.mixtape.player.formatSpeed(state.speed)
+                            else -> np.artist
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,

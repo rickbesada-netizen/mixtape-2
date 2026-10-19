@@ -61,6 +61,8 @@ import app.mixtape.core.model.SourceType
 import app.mixtape.core.model.Track
 import app.mixtape.core.model.formatDuration
 import app.mixtape.ui.components.Artwork
+import app.mixtape.ui.components.SpeedSheet
+import app.mixtape.player.formatSpeed
 import app.mixtape.ui.components.LocalContainer
 import app.mixtape.ui.components.LocalTrackActions
 import coil.compose.AsyncImage
@@ -76,6 +78,7 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
     val liked by likedFlow.collectAsStateWithLifecycle(emptySet())
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
     var showQueue by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
@@ -177,6 +180,14 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
+            val normalSpeed = kotlin.math.abs(state.speed - 1f) < 0.001f
+            TextButton(onClick = { showSpeed = true }) {
+                Text(
+                    formatSpeed(state.speed),
+                    fontWeight = if (normalSpeed) FontWeight.Normal else FontWeight.Bold,
+                    color = if (normalSpeed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                )
+            }
             val t = track
             if (t != null) {
                 val isLiked = t.key in liked
@@ -254,5 +265,15 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showSpeed) {
+        SpeedSheet(
+            speed = state.speed,
+            keepPitch = state.keepPitch,
+            onSpeed = { player.setSpeed(it) },
+            onKeepPitch = { player.setKeepPitch(it) },
+            onDismiss = { showSpeed = false },
+        )
     }
 }

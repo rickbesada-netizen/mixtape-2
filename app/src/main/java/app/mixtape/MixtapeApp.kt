@@ -82,5 +82,5 @@ class AppContainer(context: Context) {
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)
 
-    val player = PlayerConnection(context)
+    val player = PlayerConnection(context, settings)
 }

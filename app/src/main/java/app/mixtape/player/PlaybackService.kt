@@ -62,6 +62,9 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
+        // Start at the speed the listener last chose.
+        player.playbackParameters = speedParams(container.settings.speed.value, container.settings.keepPitch.value)
+
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val key = mediaItem?.mediaId ?: return

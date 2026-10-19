@@ -26,6 +26,25 @@ class Settings(context: Context) {
     /** Convert 1440p/4K (VP9) downloads to MP4 on the phone instead of keeping them as WebM. */
     val hiResAsMp4: StateFlow<Boolean> = _hiResAsMp4.asStateFlow()
 
+    private val _speed = MutableStateFlow(prefs.getFloat("playback_speed", 1f).coerceIn(MIN_SPEED, MAX_SPEED))
+    /** Music playback speed, 0.25x to 4x. Kept between sessions. */
+    val speed: StateFlow<Float> = _speed.asStateFlow()
+
+    private val _keepPitch = MutableStateFlow(prefs.getBoolean("keep_pitch", true))
+    /** true = voices sound normal at any speed; false = pitch follows speed (nightcore / slowed). */
+    val keepPitch: StateFlow<Boolean> = _keepPitch.asStateFlow()
+
+    fun setSpeed(v: Float) {
+        val clamped = v.coerceIn(MIN_SPEED, MAX_SPEED)
+        prefs.edit().putFloat("playback_speed", clamped).apply()
+        _speed.value = clamped
+    }
+
+    fun setKeepPitch(v: Boolean) {
+        prefs.edit().putBoolean("keep_pitch", v).apply()
+        _keepPitch.value = v
+    }
+
     fun setHiResAsMp4(v: Boolean) {
         prefs.edit().putBoolean("hires_mp4", v).apply()
         _hiResAsMp4.value = v
@@ -44,5 +63,10 @@ class Settings(context: Context) {
     fun setWifiOnlyDownloads(v: Boolean) {
         prefs.edit().putBoolean("wifi_only", v).apply()
         _wifiOnlyDownloads.value = v
+    }
+
+    companion object {
+        const val MIN_SPEED = 0.25f
+        const val MAX_SPEED = 4f
     }
 }

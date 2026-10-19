@@ -41,10 +41,15 @@ data class PlayerUiState(
     val currentIndex: Int = -1,
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
+    val speed: Float = 1f,
+    val keepPitch: Boolean = true,
 )
 
 /** UI-side handle on the PlaybackService via a MediaController. */
-class PlayerConnection(private val context: Context) {
+class PlayerConnection(
+    private val context: Context,
+    private val settings: app.mixtape.data.Settings,
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var controller: MediaController? = null
     private var connecting = false
@@ -130,6 +135,8 @@ class PlayerConnection(private val context: Context) {
             currentIndex = c.currentMediaItemIndex,
             hasNext = c.hasNextMediaItem(),
             hasPrevious = c.hasPreviousMediaItem() || c.currentPosition > 3000,
+            speed = c.playbackParameters.speed,
+            keepPitch = settings.keepPitch.value,
         )
         if (c.isPlaying) startTicker() else stopTicker()
     }
@@ -187,6 +194,21 @@ class PlayerConnection(private val context: Context) {
 
     fun pause() {
         controller?.pause()
+    }
+
+    /** 0.25x to 4x. Saved, so it carries on to the next song and the next time you open the app. */
+    fun setSpeed(speed: Float) {
+        settings.setSpeed(speed)
+        applySpeed()
+    }
+
+    fun setKeepPitch(keep: Boolean) {
+        settings.setKeepPitch(keep)
+        applySpeed()
+    }
+
+    private fun applySpeed() = withController {
+        it.playbackParameters = speedParams(settings.speed.value, settings.keepPitch.value)
     }
 
     fun next() = withController { it.seekToNext() }

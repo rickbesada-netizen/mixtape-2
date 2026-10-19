@@ -24,6 +24,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.SaveAlt
+import androidx.compose.material.icons.filled.Speed
+import app.mixtape.player.formatSpeed
+import app.mixtape.player.speedParams
+import app.mixtape.ui.components.SpeedSheet
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -104,6 +108,12 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
     var fullscreen by remember { mutableStateOf(false) }
 
     val player = remember { ExoPlayer.Builder(context).build() }
+    var videoSpeed by remember { mutableStateOf(1f) }
+    var videoKeepPitch by remember { mutableStateOf(true) }
+    var showSpeed by remember { mutableStateOf(false) }
+    LaunchedEffect(videoSpeed, videoKeepPitch) {
+        player.playbackParameters = speedParams(videoSpeed, videoKeepPitch)
+    }
 
     DisposableEffect(Unit) {
         container.player.pause()
@@ -212,6 +222,10 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                FilledTonalButton(onClick = { showSpeed = true }) {
+                    Icon(Icons.Filled.Speed, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                    Text("Speed " + formatSpeed(videoSpeed))
+                }
                 val isDone = videoKey in downloaded
                 val dl = o?.pickDownload(maxHeight)
                 if (!isDone && track != null && dl != null) {
@@ -254,5 +268,15 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                 modifier = Modifier.padding(top = 16.dp),
             )
         }
+    }
+
+    if (showSpeed) {
+        SpeedSheet(
+            speed = videoSpeed,
+            keepPitch = videoKeepPitch,
+            onSpeed = { videoSpeed = it },
+            onKeepPitch = { videoKeepPitch = it },
+            onDismiss = { showSpeed = false },
+        )
     }
 }
