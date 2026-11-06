@@ -289,6 +289,9 @@ interface DownloadDao {
     @Upsert
     suspend fun upsert(d: DownloadEntity)
 
+    @Query("SELECT * FROM downloads WHERE state = 'done'")
+    suspend fun doneOnce(): List<DownloadEntity>
+
     @Query("SELECT * FROM downloads WHERE trackKey = :key")
     suspend fun get(key: String): DownloadEntity?
 

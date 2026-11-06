@@ -39,6 +39,8 @@ fun SettingsScreen() {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         AccountSection()
         HorizontalDivider(Modifier.padding(top = 8.dp))
+        BackupSection()
+        HorizontalDivider(Modifier.padding(top = 8.dp))
         SectionTitle("Settings")
 
         Text("Streaming quality", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp))

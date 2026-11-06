@@ -7,6 +7,7 @@ import app.mixtape.core.net.NewPipeDownloader
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import app.mixtape.core.net.buildHttpClient
+import app.mixtape.data.BackupManager
 import app.mixtape.data.LibraryRepository
 import app.mixtape.data.Settings
 import app.mixtape.data.db.AppDatabase
@@ -81,6 +82,8 @@ class AppContainer(context: Context) {
     val cloud = CloudSync(context, http, db, library)
 
     val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth)
+
+    val backup = BackupManager(context, db, library, crypto, downloads)
 
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)
