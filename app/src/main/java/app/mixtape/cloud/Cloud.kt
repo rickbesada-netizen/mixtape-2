@@ -54,6 +54,20 @@ class CloudSync(
     private val mutex = Mutex()
     private val json = "application/json".toMediaType()
 
+    init {
+        // The first Supabase project was deleted. Forget a server address saved for it, and any
+        // login session that belongs to a different server than the one now in use.
+        if (prefs.getString("url", null)?.contains(OLD_PROJECT_REF) == true) {
+            prefs.edit().remove("url").remove("anon_key").apply()
+        }
+        val sessionUrl = prefs.getString("session_url", null)
+        val signedInBefore = prefs.getString("refresh_token", null) != null
+        if (signedInBefore && (sessionUrl == null || sessionUrl != url)) {
+            prefs.edit().remove("access_token").remove("refresh_token").remove("expires_at")
+                .remove("user_id").remove("email").remove("status").apply()
+        }
+    }
+
     private val _account = MutableStateFlow(loadAccount())
     val account: StateFlow<CloudAccount?> = _account.asStateFlow()
 
@@ -120,6 +134,7 @@ class CloudSync(
             .putString("refresh_token", res.getString("refresh_token"))
             .putLong("expires_at", System.currentTimeMillis() + res.optLong("expires_in", 3600) * 1000)
             .putString("user_id", user.getString("id"))
+            .putString("session_url", url)
             .putString("email", user.optString("email"))
             .apply()
         _account.value = CloudAccount(user.getString("id"), user.optString("email"))
@@ -467,5 +482,7 @@ class CloudSync(
         )
     }
 }
+
+private const val OLD_PROJECT_REF = "wytpepmljjzevewxetzf"
 
 class CloudHttpException(val code: Int, message: String) : IOException(message)
