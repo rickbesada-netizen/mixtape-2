@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -58,6 +59,7 @@ import app.mixtape.ui.components.TrackActions
 import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CollectionScreen
 import app.mixtape.ui.screens.DownloadsScreen
+import app.mixtape.ui.screens.HomeScreen
 import app.mixtape.ui.screens.LibraryScreen
 import app.mixtape.ui.screens.MatchScreen
 import app.mixtape.ui.screens.NowPlayingScreen
@@ -74,6 +76,7 @@ import java.net.URLEncoder
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
+    Tab("home", "Home", Icons.Filled.Home),
     Tab("search", "Search", Icons.Filled.Search),
     Tab("library", "Library", Icons.Filled.LibraryMusic),
     Tab("downloads", "Downloads", Icons.Filled.Download),
@@ -209,9 +212,10 @@ fun MixtapeAppUi(container: AppContainer) {
         ) { padding ->
             NavHost(
                 navController = nav,
-                startDestination = "search",
+                startDestination = "home",
                 modifier = Modifier.padding(padding),
             ) {
+                composable("home") { HomeScreen(openPlaylist = { nav.navigate("playlist/$it") }) }
                 composable("search") { SearchScreen(openCollection = { actions.openCollection(it) }) }
                 composable("collection/{url}") { entry ->
                     CollectionScreen(

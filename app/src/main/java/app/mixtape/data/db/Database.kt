@@ -232,6 +232,12 @@ abstract class PlaylistDao {
     )
     abstract fun tracks(playlistId: Long): Flow<List<TrackEntity>>
 
+    @Query(
+        "SELECT t.* FROM tracks t INNER JOIN playlist_tracks pt ON pt.trackKey = t.trackKey " +
+            "WHERE pt.playlistId = :playlistId ORDER BY pt.position"
+    )
+    abstract suspend fun tracksOnce(playlistId: Long): List<TrackEntity>
+
     @Query("UPDATE playlists SET updatedAt = :at WHERE id = :id")
     abstract suspend fun touch(id: Long, at: Long)
 

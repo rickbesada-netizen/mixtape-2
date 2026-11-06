@@ -77,6 +77,12 @@ class LinkResolver(
     /** Loads a playlist or album URL from search results (or re-opens one from a link). */
     suspend fun loadCollection(url: String): CollectionDetail {
         cache[url]?.let { return it }
+        // YouTube Mixes (list=RD...) look like a song link; open them as the playlist they are.
+        val host = url.toHttpUrlOrNull()?.host.orEmpty()
+        if (host.endsWith("youtube.com") && url.toHttpUrlOrNull()?.queryParameter("list") != null) {
+            val d = NewPipeCollections.loadPlaylist(ServiceList.YouTube, url)
+            return d.copy(info = d.info.copy(url = url)).also { cache[url] = it }
+        }
         return when (val r = resolve(url)) {
             is LinkResult.Collection -> r.detail
             is LinkResult.Single -> throw IOException("That link is a single song, not a playlist")

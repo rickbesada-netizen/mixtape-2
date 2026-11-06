@@ -25,6 +25,10 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -105,6 +109,13 @@ fun DownloadsScreen(openVideo: (String) -> Unit, openPlaylist: (Long) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var searchAll by rememberSaveable { mutableStateOf(false) }
     var showActive by rememberSaveable { mutableStateOf(false) }
+    var mixMode by rememberSaveable { mutableStateOf(false) }
+    var mixSelected by remember { mutableStateOf(setOf<Long>()) }
+
+    fun shuffleDownloaded(list: List<Track>) {
+        val offline = list.filter { it.key in doneKeys }.distinctBy { it.key }.shuffled()
+        if (offline.isNotEmpty()) actions.play(offline, 0)
+    }
     var results by remember { mutableStateOf<List<Pair<Track, List<String>>>>(emptyList()) }
 
     LaunchedEffect(query, searchAll, allDone.size) {
@@ -188,8 +199,61 @@ fun DownloadsScreen(openVideo: (String) -> Unit, openPlaylist: (Long) -> Unit) {
                     if (downloadedPlaylists.isEmpty() && looseSongs.isEmpty()) {
                         item { EmptyHint("No downloaded playlists yet. Open a playlist and tap Download.") }
                     }
+                    if (songs.isNotEmpty()) {
+                        item {
+                            if (!mixMode) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Button(onClick = { shuffleDownloaded(songs.mapNotNull { it.track?.toTrack() }) }) {
+                                        Icon(Icons.Filled.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                                        Text("Shuffle everything")
+                                    }
+                                    if (downloadedPlaylists.size > 1) {
+                                        OutlinedButton(onClick = { mixMode = true; mixSelected = emptySet() }) {
+                                            Text("Mix playlists")
+                                        }
+                                    }
+                                }
+                            } else {
+                                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Column(Modifier.padding(16.dp)) {
+                                        Text("Tick the playlists to mix together", style = MaterialTheme.typography.bodyMedium)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                                            Button(
+                                                enabled = mixSelected.isNotEmpty(),
+                                                onClick = {
+                                                    val ids = mixSelected.toList()
+                                                    scope.launch {
+                                                        shuffleDownloaded(ids.flatMap { container.library.playlistTracksOnce(it) })
+                                                    }
+                                                    mixMode = false
+                                                },
+                                            ) {
+                                                Icon(Icons.Filled.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                                                Text(if (mixSelected.isEmpty()) "Shuffle" else "Shuffle ${mixSelected.size} playlists")
+                                            }
+                                            TextButton(onClick = { mixMode = false }) { Text("Cancel") }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     items(downloadedPlaylists, key = { "p-" + it.playlist.id }) { p ->
-                        DownloadedPlaylistRow(p) { openPlaylist(p.playlist.id) }
+                        val id = p.playlist.id
+                        DownloadedPlaylistRow(
+                            p,
+                            selecting = mixMode,
+                            selected = id in mixSelected,
+                            onShuffle = {
+                                scope.launch { shuffleDownloaded(container.library.playlistTracksOnce(id)) }
+                            },
+                        ) {
+                            if (mixMode) mixSelected = if (id in mixSelected) mixSelected - id else mixSelected + id
+                            else openPlaylist(id)
+                        }
                     }
                     if (looseSongs.isNotEmpty()) {
                         item {
@@ -210,6 +274,9 @@ fun DownloadsScreen(openVideo: (String) -> Unit, openPlaylist: (Long) -> Unit) {
                                 Button(onClick = {
                                     actions.play(songs.mapNotNull { it.track?.toTrack() }, 0)
                                 }) { Text("Play all offline") }
+                                FilledTonalButton(onClick = { shuffleDownloaded(songs.mapNotNull { it.track?.toTrack() }) }) {
+                                    Icon(Icons.Filled.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Shuffle")
+                                }
                             }
                         }
                         songRows(songs, liked, actions::play, container)
@@ -238,7 +305,13 @@ private fun EmptyHint(text: String) {
 }
 
 @Composable
-private fun DownloadedPlaylistRow(p: PlaylistWithCount, onOpen: () -> Unit) {
+private fun DownloadedPlaylistRow(
+    p: PlaylistWithCount,
+    selecting: Boolean,
+    selected: Boolean,
+    onShuffle: () -> Unit,
+    onOpen: () -> Unit,
+) {
     val complete = p.trackCount > 0 && p.downloadedCount >= p.trackCount
     ListItem(
         headlineContent = { Text(p.playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -256,10 +329,22 @@ private fun DownloadedPlaylistRow(p: PlaylistWithCount, onOpen: () -> Unit) {
                 }
             }
         },
-        leadingContent = { Artwork(p.playlist.artworkUrl, 56) },
+        leadingContent = {
+            if (selecting) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = selected, onCheckedChange = { onOpen() })
+                    Artwork(p.playlist.artworkUrl, 48)
+                }
+            } else Artwork(p.playlist.artworkUrl, 56)
+        },
         trailingContent = {
-            if (complete) Icon(Icons.Filled.DownloadDone, "Fully downloaded", tint = MaterialTheme.colorScheme.primary)
-            else Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+            if (!selecting) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onShuffle) { Icon(Icons.Filled.Shuffle, "Shuffle this playlist") }
+                    if (complete) Icon(Icons.Filled.DownloadDone, "Fully downloaded", tint = MaterialTheme.colorScheme.primary)
+                    else Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+                }
+            }
         },
         modifier = Modifier.clickable(onClick = onOpen),
     )

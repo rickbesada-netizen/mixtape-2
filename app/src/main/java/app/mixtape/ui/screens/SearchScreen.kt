@@ -195,6 +195,11 @@ fun SearchScreen(openCollection: (String) -> Unit) {
             state.filter.collections && state.collections.isEmpty() -> EmptyState("No playlists found")
             state.filter.collections -> CollectionList(state.collections, openCollection)
             state.results.isEmpty() -> EmptyState("No results")
+            // Videos open in the video player, like YouTube; songs play as audio.
+            state.filter == SearchFilter.YT_VIDEOS -> TrackList(
+                state.results, liked, downloaded,
+                onItemClick = { list, i -> actions.watchVideo(list[i]) },
+            )
             else -> TrackList(state.results, liked, downloaded)
         }
         }

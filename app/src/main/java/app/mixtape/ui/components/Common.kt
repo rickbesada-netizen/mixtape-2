@@ -209,6 +209,8 @@ fun TrackList(
     modifier: Modifier = Modifier,
     header: (@Composable () -> Unit)? = null,
     extraMenu: (@Composable (Track, dismiss: () -> Unit) -> Unit)? = null,
+    /** Overrides what tapping a row does (default: play the list from that row). */
+    onItemClick: ((List<Track>, Int) -> Unit)? = null,
 ) {
     val actions = LocalTrackActions.current
     LazyColumn(modifier.fillMaxSize()) {
@@ -221,7 +223,7 @@ fun TrackList(
                 track = t,
                 liked = t.key in likedKeys,
                 downloaded = t.key in downloadedKeys,
-                onClick = { actions.play(tracks, i) },
+                onClick = { if (onItemClick != null) onItemClick(tracks, i) else actions.play(tracks, i) },
                 extraMenu = rowMenu,
             )
         }

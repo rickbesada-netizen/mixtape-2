@@ -41,6 +41,8 @@ class LibraryRepository(private val db: AppDatabase) {
     fun playlists(): Flow<List<PlaylistWithCount>> = playlists.all()
     fun keysInPlaylists(): Flow<Set<String>> = playlists.keysInPlaylists().map { it.toSet() }
     fun playlist(id: Long): Flow<PlaylistEntity?> = playlists.observe(id)
+    suspend fun playlistTracksOnce(id: Long): List<Track> = playlists.tracksOnce(id).map { it.toTrack() }
+
     fun playlistTracks(id: Long): Flow<List<Track>> =
         playlists.tracks(id).map { l -> l.map { it.toTrack() } }
 

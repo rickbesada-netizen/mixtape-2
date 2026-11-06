@@ -15,6 +15,7 @@ import app.mixtape.download.DownloadController
 import app.mixtape.matcher.TrackMatcher
 import app.mixtape.player.PlayerConnection
 import app.mixtape.player.StreamResolver
+import app.mixtape.source.HomeFeedRepository
 import app.mixtape.source.LinkResolver
 import app.mixtape.source.SoundCloudSource
 import app.mixtape.source.SourceRegistry
@@ -78,6 +79,8 @@ class AppContainer(context: Context) {
     val links = LinkResolver(http, spotify, spotifyAuth)
 
     val cloud = CloudSync(context, http, db, library)
+
+    val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth)
 
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)
