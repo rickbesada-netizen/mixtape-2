@@ -14,12 +14,14 @@ import app.mixtape.data.db.AppDatabase
 import app.mixtape.download.CryptoManager
 import app.mixtape.download.DownloadController
 import app.mixtape.matcher.TrackMatcher
+import app.mixtape.player.CastRelay
 import app.mixtape.player.PlayerConnection
 import app.mixtape.player.StreamResolver
 import app.mixtape.source.HomeFeedRepository
 import app.mixtape.source.LinkResolver
 import app.mixtape.source.SoundCloudSource
 import app.mixtape.source.SourceRegistry
+import app.mixtape.source.SubscriptionRepository
 import app.mixtape.source.YouTubeSource
 import app.mixtape.spotify.SpotifyApi
 import app.mixtape.spotify.SpotifyAuth
@@ -53,6 +55,7 @@ class MixtapeApp : Application() {
                 c.library.likedKeys().map { it as Any },
                 c.library.playlists().map { it as Any },
                 c.downloads.doneKeys().map { it as Any },
+                c.subscriptions.subscriptions().map { it as Any },
             )
         )
     }
@@ -84,6 +87,10 @@ class AppContainer(context: Context) {
     val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth)
 
     val backup = BackupManager(context, db, library, crypto, downloads)
+
+    val subscriptions = SubscriptionRepository(context, db.subscriptions(), http)
+
+    val castRelay = CastRelay(context, http, sources, matcher, downloads, crypto)
 
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)

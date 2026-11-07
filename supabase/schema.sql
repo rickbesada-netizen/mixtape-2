@@ -63,3 +63,17 @@ create policy "own rows" on public.library_tracks for all using (auth.uid() = us
 create policy "own rows" on public.playlists      for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on public.playlist_items for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on public.track_matches  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- v2: YouTube channel subscriptions (run this part on its own if you set up the project earlier).
+create table if not exists public.subscriptions (
+  user_id     uuid    not null default auth.uid() references auth.users (id) on delete cascade,
+  channel_id  text    not null,
+  name        text    not null default '',
+  avatar_url  text,
+  updated_at  bigint  not null default 0,
+  deleted     boolean not null default false,
+  primary key (user_id, channel_id)
+);
+alter table public.subscriptions enable row level security;
+drop policy if exists "own rows" on public.subscriptions;
+create policy "own rows" on public.subscriptions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

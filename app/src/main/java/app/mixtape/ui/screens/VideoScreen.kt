@@ -5,6 +5,9 @@ import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Button
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +27,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.SaveAlt
+import androidx.compose.material.icons.filled.PictureInPictureAlt
+import app.mixtape.player.Pip
+import app.mixtape.ui.components.CastButton
+import app.mixtape.ui.components.rememberCastConnected
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Speed
 import app.mixtape.player.formatSpeed
 import app.mixtape.player.speedParams
@@ -90,7 +98,7 @@ private fun buildSource(container: AppContainer, choice: VideoChoice?, offline: 
 }
 
 @Composable
-fun VideoScreen(videoId: String, onBack: () -> Unit) {
+fun VideoScreen(videoId: String, onBack: () -> Unit, openChannel: (String) -> Unit = {}) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val context = LocalContext.current
@@ -115,11 +123,33 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
         player.playbackParameters = speedParams(videoSpeed, videoKeepPitch)
     }
 
+    val activity = context as? Activity
+    val castConnected = rememberCastConnected()
+    val inPip by Pip.inPip.collectAsStateWithLifecycle()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
     DisposableEffect(Unit) {
         container.player.pause()
+        // Keep picture-in-picture in step with playback, and pause when the app is really
+        // left (not when it shrinks into the floating window).
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                Pip.videoPlaying = isPlaying
+                activity?.let { Pip.update(it) }
+            }
+        }
+        player.addListener(listener)
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) player.pause()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.removeListener(listener)
+            Pip.videoPlaying = false
+            activity?.let { Pip.update(it) }
             player.release()
-            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -151,6 +181,17 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
         Track(SourceType.YOUTUBE, it.videoId, it.title, it.uploader, durationSec = it.durationSec, artworkUrl = it.thumbnailUrl)
     }
 
+    // In the floating window, show only the picture.
+    if (inPip) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            AndroidView(
+                factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = false } },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        return
+    }
+
     Column(Modifier.fillMaxSize()) {
         if (!fullscreen) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -161,6 +202,12 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
+                if (activity != null && Pip.supported(activity)) {
+                    IconButton(onClick = { Pip.enter(activity) }) {
+                        Icon(Icons.Filled.PictureInPictureAlt, "Picture in picture")
+                    }
+                }
+                CastButton()
             }
         }
         Box(
@@ -193,10 +240,40 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
             if (o != null) {
                 Text(o.title, style = MaterialTheme.typography.titleLarge)
                 Text(
-                    listOf(o.uploader, formatDuration(o.durationSec)).filter { it.isNotBlank() }.joinToString(" · "),
+                    listOfNotNull(
+                        o.viewCount.takeIf { it > 0 }?.let { compactCount(it) + " views" },
+                        formatDuration(o.durationSec).takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val channelId = o.channelUrl?.let { app.mixtape.source.SubscriptionRepository.channelIdFrom(it) }
+                if (channelId != null) {
+                    val subsFlow = remember { container.subscriptions.subscribedIds() }
+                    val subbed by subsFlow.collectAsStateWithLifecycle(emptySet())
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            Modifier.weight(1f).clickable { openChannel(channelId) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ChannelAvatar(o.channelAvatar, 40)
+                            Spacer(Modifier.width(10.dp))
+                            Text(o.uploader, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                        }
+                        if (channelId in subbed) {
+                            OutlinedButton(onClick = { scope.launch { container.subscriptions.unsubscribe(channelId) } }) { Text("Subscribed") }
+                        } else {
+                            Button(onClick = {
+                                scope.launch {
+                                    container.subscriptions.subscribe(app.mixtape.source.Channel(channelId, o.uploader, o.channelAvatar))
+                                }
+                            }) { Text("Subscribe") }
+                        }
+                    }
+                }
                 Spacer(Modifier.size(12.dp))
                 if (offlineFile == null) {
                     Text("Quality", style = MaterialTheme.typography.labelLarge)
@@ -246,6 +323,17 @@ fun VideoScreen(videoId: String, onBack: () -> Unit) {
                         }
                     }) {
                         Icon(Icons.Filled.SaveAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Save to phone")
+                    }
+                }
+                if (track != null && castConnected) {
+                    Button(onClick = {
+                        player.pause()
+                        // The TV plays the video itself; the phone becomes the remote.
+                        val tv = track.copy(source = SourceType.YOUTUBE_VIDEO)
+                        container.player.playTracks(listOf(tv), 0)
+                        Toast.makeText(context, "Playing on your TV", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Filled.Cast, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play on TV")
                     }
                 }
                 if (track != null) {

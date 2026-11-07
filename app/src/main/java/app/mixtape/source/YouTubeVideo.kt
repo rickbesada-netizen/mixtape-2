@@ -52,6 +52,12 @@ data class VideoOptions(
     val durationSec: Long,
     /** Qualities this phone can play, lowest first. */
     val choices: List<VideoChoice>,
+    val channelUrl: String? = null,
+    val channelAvatar: String? = null,
+    /** Best stream that has picture and sound together (for casting). */
+    val castUrl: String? = null,
+    val viewCount: Long = -1,
+    val description: String = "",
 ) {
     /** Best playable quality at or below [maxHeight], else the lowest available. */
     fun pick(maxHeight: Int): VideoChoice =
@@ -135,6 +141,13 @@ object YouTubeVideo {
             thumbnailUrl = info.thumbnails.bestUrl(),
             durationSec = info.duration.coerceAtLeast(0),
             choices = choices.sortedBy { it.height },
+            channelUrl = info.uploaderUrl,
+            channelAvatar = info.uploaderAvatars.bestUrl(),
+            castUrl = info.videoStreams
+                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.isUrl && !it.isVideoOnly && it.format == MediaFormat.MPEG_4 }
+                .maxByOrNull { it.height }?.content,
+            viewCount = info.viewCount,
+            description = info.description?.content.orEmpty(),
         )
     }
 

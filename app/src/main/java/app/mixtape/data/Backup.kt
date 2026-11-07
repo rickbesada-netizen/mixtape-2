@@ -146,12 +146,18 @@ class BackupManager(
             )
         }
 
+        val subsJson = JSONArray()
+        db.subscriptions().activeOnce().forEach {
+            subsJson.put(JSONObject().put("channelId", it.channelId).put("name", it.name).put("avatarUrl", it.avatarUrl ?: JSONObject.NULL))
+        }
+
         val manifest = JSONObject()
             .put("app", "Mixtape").put("version", 1)
             .put("exportedAt", System.currentTimeMillis())
             .put("includesMedia", includeMedia)
             .put("tracks", tracksJson).put("playlists", playlistsJson)
             .put("matches", matchesJson).put("downloads", downloadsJson)
+            .put("subscriptions", subsJson)
         return manifest to done
     }
 
@@ -348,6 +354,19 @@ class BackupManager(
                 )
             )
             db.playlists().replaceEntries(id, keys)
+        }
+
+        val sj = m.optJSONArray("subscriptions") ?: JSONArray()
+        for (i in 0 until sj.length()) {
+            val o = sj.getJSONObject(i)
+            val id = o.optString("channelId")
+            if (id.isEmpty() || db.subscriptions().get(id)?.deleted == false) continue
+            db.subscriptions().upsert(
+                app.mixtape.data.db.SubscriptionEntity(
+                    id, o.optString("name"), o.optString("avatarUrl").takeIf { it.isNotEmpty() && it != "null" },
+                    System.currentTimeMillis(),
+                )
+            )
         }
 
         val mj = m.optJSONArray("matches") ?: JSONArray()

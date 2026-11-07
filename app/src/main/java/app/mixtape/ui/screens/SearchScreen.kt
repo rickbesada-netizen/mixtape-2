@@ -81,6 +81,7 @@ data class SearchUiState(
     val loading: Boolean = false,
     val results: List<Track> = emptyList(),
     val collections: List<RemoteCollection> = emptyList(),
+    val channels: List<app.mixtape.source.Channel> = emptyList(),
     val error: String? = null,
     val searched: Boolean = false,
 )
@@ -105,6 +106,12 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
         job?.cancel()
         job = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
+            if (filter == SearchFilter.YT_CHANNELS) {
+                runCatching { container.subscriptions.searchChannels(q) }
+                    .onSuccess { ch -> _state.update { it.copy(channels = ch, results = emptyList(), collections = emptyList(), loading = false, searched = true) } }
+                    .onFailure { e -> _state.update { it.copy(loading = false, searched = true, error = e.message ?: "Search failed") } }
+                return@launch
+            }
             runCatching {
                 if (filter.collections) emptyList<Track>() to container.sources.searchCollections(q, filter)
                 else container.sources.search(q, filter) to emptyList<RemoteCollection>()
@@ -122,7 +129,7 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun SearchScreen(openCollection: (String) -> Unit) {
+fun SearchScreen(openCollection: (String) -> Unit, openChannel: (String) -> Unit) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val vm = containerViewModel { SearchViewModel(it) }
@@ -192,6 +199,26 @@ fun SearchScreen(openCollection: (String) -> Unit) {
             }
             state.error != null -> EmptyState("Couldn't search: ${state.error}")
             !state.searched -> EmptyState("Search YouTube Music, YouTube and SoundCloud from one place, or paste a link.")
+            state.filter == SearchFilter.YT_CHANNELS && state.channels.isEmpty() -> EmptyState("No channels found")
+            state.filter == SearchFilter.YT_CHANNELS -> {
+                val subsFlow = remember { container.subscriptions.subscribedIds() }
+                val subbed by subsFlow.collectAsStateWithLifecycle(emptySet())
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(state.channels, key = { it.id }) { c ->
+                        ChannelResultRow(
+                            c, subscribed = c.id in subbed,
+                            onOpen = { openChannel(c.id) },
+                            onToggle = {
+                                scope.launch {
+                                    if (c.id in subbed) container.subscriptions.unsubscribe(c.id)
+                                    else container.subscriptions.subscribe(c)
+                                }
+                            },
+                        )
+                    }
+                }
+            }
             state.filter.collections && state.collections.isEmpty() -> EmptyState("No playlists found")
             state.filter.collections -> CollectionList(state.collections, openCollection)
             state.results.isEmpty() -> EmptyState("No results")

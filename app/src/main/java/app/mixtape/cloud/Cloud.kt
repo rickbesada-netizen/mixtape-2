@@ -330,6 +330,7 @@ class CloudSync(
                 db.matches().upsert(MatchEntity(key, m.optString("youtube_id"), 1.0, m.optBoolean("manual")))
             }
         }
+        changes += pullSubscriptions()
         return changes
     }
 
@@ -385,7 +386,54 @@ class CloudSync(
             JSONObject().put("user_id", userId).put("spotify_key", it.spotifyKey)
                 .put("youtube_id", it.youtubeId).put("manual", it.manual)
         })
+        pushSubscriptions(userId)
         return pushed
+    }
+
+    // ---------------------------------------------------------------- subscriptions
+
+    /** True when the project has no subscriptions table yet (older schema): skip quietly. */
+    private var subscriptionsTableMissing = false
+
+    private suspend fun pullSubscriptions(): Int {
+        val remote = try {
+            getAll("subscriptions", "channel_id")
+        } catch (e: CloudHttpException) {
+            if (e.code == 404 || e.message?.contains("subscriptions") == true) { subscriptionsTableMissing = true; return 0 }
+            throw e
+        }
+        subscriptionsTableMissing = false
+        var changes = 0
+        val dao = db.subscriptions()
+        for (r in remote) {
+            val id = r.optString("channel_id")
+            if (id.isEmpty()) continue
+            val at = r.optLong("updated_at", 0)
+            val local = dao.get(id)
+            if (local == null || at > local.subscribedAt) {
+                dao.upsert(
+                    app.mixtape.data.db.SubscriptionEntity(
+                        channelId = id,
+                        name = r.optString("name", local?.name ?: ""),
+                        avatarUrl = r.optString("avatar_url").takeIf { it.isNotEmpty() && it != "null" } ?: local?.avatarUrl,
+                        subscribedAt = at,
+                        deleted = r.optBoolean("deleted", false),
+                    )
+                )
+                changes++
+            }
+        }
+        return changes
+    }
+
+    private suspend fun pushSubscriptions(userId: String) {
+        if (subscriptionsTableMissing) return
+        val rows = db.subscriptions().allOnce().map {
+            JSONObject().put("user_id", userId).put("channel_id", it.channelId).put("name", it.name)
+                .put("avatar_url", it.avatarUrl ?: JSONObject.NULL).put("updated_at", it.subscribedAt)
+                .put("deleted", it.deleted)
+        }
+        upsert("subscriptions", rows)
     }
 
     // ---------------------------------------------------------------- deletions

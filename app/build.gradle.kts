@@ -122,6 +122,12 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-transformer:$media3")
 
+    // Chromecast
+    implementation("androidx.media3:media3-cast:$media3")
+    implementation("androidx.mediarouter:mediarouter:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -32,6 +33,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,7 +96,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(openPlaylist: (Long) -> Unit) {
+fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val vm = containerViewModel { HomeViewModel(it) }
@@ -101,6 +105,12 @@ fun HomeScreen(openPlaylist: (Long) -> Unit) {
     val playlistsFlow = remember { container.library.playlists() }
     val recent by recentFlow.collectAsStateWithLifecycle(emptyList())
     val playlists by playlistsFlow.collectAsStateWithLifecycle(emptyList())
+    val subsFlow = remember { container.subscriptions.subscriptions() }
+    val subs by subsFlow.collectAsStateWithLifecycle(emptyList())
+    var subFeed by remember { mutableStateOf(container.subscriptions.peekFeed()) }
+    LaunchedEffect(subs.size) {
+        if (subs.isNotEmpty()) runCatching { container.subscriptions.feed(force = false) }.onSuccess { subFeed = it }
+    }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item {
@@ -113,6 +123,24 @@ fun HomeScreen(openPlaylist: (Long) -> Unit) {
             }
         }
 
+        item {
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.AssistChip(
+                    onClick = openSubscriptions,
+                    label = { Text(if (subs.isEmpty()) "Subscriptions" else "Subscriptions (${subs.size})") },
+                    leadingIcon = { Icon(Icons.Filled.Subscriptions, null, Modifier.size(18.dp)) },
+                )
+            }
+        }
+        if (subFeed.isNotEmpty()) {
+            item {
+                SectionHeader("From your subscriptions") {
+                    androidx.compose.material3.TextButton(onClick = openSubscriptions) { Text("See all") }
+                }
+                val vids = subFeed.take(20).map { it.track }
+                VideoRow(vids) { i -> actions.watchVideo(vids[i]) }
+            }
+        }
         if (recent.isNotEmpty()) {
             item {
                 SectionHeader("Recently played") {

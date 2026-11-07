@@ -57,6 +57,7 @@ enum class SearchFilter(val label: String, val collections: Boolean = false) {
     YT_VIDEOS("Videos"),
     YT_MUSIC_ALBUMS("Albums", collections = true),
     YT_PLAYLISTS("Playlists", collections = true),
+    YT_CHANNELS("Channels"),
     SOUNDCLOUD("SoundCloud"),
     SOUNDCLOUD_PLAYLISTS("SC playlists", collections = true),
 }

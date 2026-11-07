@@ -6,17 +6,18 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.mixtape.MixtapeApp
+import app.mixtape.player.Pip
 import app.mixtape.ui.theme.MixtapeTheme
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -36,11 +37,19 @@ class MainActivity : ComponentActivity() {
 
         handleIntent(intent)
 
+        addOnPictureInPictureModeChangedListener { info -> Pip.inPip.value = info.isInPictureInPictureMode }
+
         setContent {
             MixtapeTheme {
                 MixtapeAppUi(container)
             }
         }
+    }
+
+    /** Android 8-11: going home while a video plays pops it into a floating window. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && Pip.videoPlaying) Pip.enter(this)
     }
 
     override fun onNewIntent(intent: Intent) {

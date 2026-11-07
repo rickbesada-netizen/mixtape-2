@@ -349,12 +349,47 @@ interface HistoryDao {
     suspend fun clear()
 }
 
+/** A YouTube channel you follow. [channelId] is the UC... id. Deleted rows stay as tombstones for sync. */
+@Entity(tableName = "subscriptions")
+data class SubscriptionEntity(
+    @PrimaryKey val channelId: String,
+    val name: String,
+    val avatarUrl: String?,
+    val subscribedAt: Long,
+    val deleted: Boolean = false,
+)
+
+@Dao
+interface SubscriptionDao {
+    @Query("SELECT * FROM subscriptions WHERE deleted = 0 ORDER BY name COLLATE NOCASE")
+    fun active(): Flow<List<SubscriptionEntity>>
+
+    @Query("SELECT * FROM subscriptions WHERE deleted = 0")
+    suspend fun activeOnce(): List<SubscriptionEntity>
+
+    @Query("SELECT * FROM subscriptions")
+    suspend fun allOnce(): List<SubscriptionEntity>
+
+    @Query("SELECT * FROM subscriptions WHERE channelId = :id")
+    suspend fun get(id: String): SubscriptionEntity?
+
+    @Query("SELECT channelId FROM subscriptions WHERE deleted = 0")
+    fun activeIds(): Flow<List<String>>
+
+    @Upsert
+    suspend fun upsert(s: SubscriptionEntity)
+
+    @Upsert
+    suspend fun upsertAll(s: List<SubscriptionEntity>)
+}
+
 @Database(
     entities = [
         TrackEntity::class, PlaylistEntity::class, PlaylistTrackEntity::class,
         DownloadEntity::class, MatchEntity::class, HistoryEntity::class,
+        SubscriptionEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -363,6 +398,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun downloads(): DownloadDao
     abstract fun matches(): MatchDao
     abstract fun history(): HistoryDao
+    abstract fun subscriptions(): SubscriptionDao
 
     companion object {
         /** v2: playlists get a cloud sync id and an updated-at time. Keeps everyone's library. */
@@ -373,9 +409,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v3: YouTube channel subscriptions. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `subscriptions` (`channelId` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`avatarUrl` TEXT, `subscribedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`channelId`))"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "mixtape.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }

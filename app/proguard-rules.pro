@@ -30,3 +30,6 @@
 # The extractor's optional dependencies reference desktop-JVM classes that don't exist on
 # Android; don't fail the release build over them.
 -ignorewarnings
+
+# Chromecast options provider is named in the manifest only.
+-keep class app.mixtape.player.CastOptionsProvider { *; }

@@ -62,6 +62,7 @@ import app.mixtape.core.model.Track
 import app.mixtape.core.model.formatDuration
 import app.mixtape.ui.components.Artwork
 import app.mixtape.ui.components.SpeedSheet
+import app.mixtape.ui.components.CastButton
 import app.mixtape.player.formatSpeed
 import app.mixtape.ui.components.LocalContainer
 import app.mixtape.ui.components.LocalTrackActions
@@ -103,6 +104,7 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
                 style = MaterialTheme.typography.labelLarge,
             )
             Spacer(Modifier.weight(1f))
+            CastButton()
             IconButton(onClick = { showQueue = !showQueue }) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue")
             }

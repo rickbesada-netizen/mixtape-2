@@ -11,6 +11,8 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -35,11 +37,12 @@ import kotlinx.coroutines.runBlocking
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var exoPlayer: ExoPlayer
+    private var castPlayer: CastPlayer? = null
+    private val container get() = (application as MixtapeApp).container
 
     override fun onCreate() {
         super.onCreate()
-        val container = (application as MixtapeApp).container
-
         val dataSourceFactory = DataSource.Factory {
             MixtapeDataSource(
                 resolver = container.resolver,
@@ -65,12 +68,26 @@ class PlaybackService : MediaSessionService() {
         // Start at the speed the listener last chose.
         player.playbackParameters = speedParams(container.settings.speed.value, container.settings.keepPitch.value)
 
-        player.addListener(object : Player.Listener {
+        val historyListener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val key = mediaItem?.mediaId ?: return
                 scope.launch(Dispatchers.IO) { container.library.recordPlay(key) }
             }
-        })
+        }
+        player.addListener(historyListener)
+        exoPlayer = player
+
+        // Chromecast: when a Cast session starts, the queue moves to the TV and the phone becomes
+        // the remote; when it ends, playback comes back to the phone where it left off.
+        CastSupport.context(this)?.let { castContext ->
+            castPlayer = runCatching { CastPlayer(castContext) }.getOrNull()?.apply {
+                addListener(historyListener)
+                setSessionAvailabilityListener(object : SessionAvailabilityListener {
+                    override fun onCastSessionAvailable() = switchToCast()
+                    override fun onCastSessionUnavailable() = switchToLocal()
+                })
+            }
+        }
 
         val openApp = PendingIntent.getActivity(
             this, 0,
@@ -81,6 +98,65 @@ class PlaybackService : MediaSessionService() {
         session = MediaSession.Builder(this, player)
             .setSessionActivity(openApp)
             .setCallback(SessionCallback())
+            .build()
+
+        if (castPlayer?.isCastSessionAvailable == true) switchToCast()
+    }
+
+    private fun currentQueue(p: Player): Triple<List<MediaItem>, Int, Long> =
+        Triple((0 until p.mediaItemCount).map { p.getMediaItemAt(it) }, p.currentMediaItemIndex.coerceAtLeast(0), p.currentPosition.coerceAtLeast(0))
+
+    private fun switchToCast() {
+        val cast = castPlayer ?: return
+        val s = session ?: return
+        if (s.player === cast) return
+        val (items, index, position) = currentQueue(exoPlayer)
+        scope.launch {
+            val castItems = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                items.map { buildCastItem(it.mediaId, it.mediaMetadata) }
+            }
+            if (castItems.any { it == null }) {
+                android.widget.Toast.makeText(this@PlaybackService, "Casting needs the phone and TV on the same Wi-Fi", android.widget.Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            exoPlayer.pause()
+            if (castItems.isNotEmpty()) {
+                cast.setMediaItems(castItems.filterNotNull(), index, position)
+                cast.prepare()
+                cast.play()
+            }
+            s.player = cast
+            exoPlayer.stop()
+        }
+    }
+
+    private fun switchToLocal() {
+        val cast = castPlayer ?: return
+        val s = session ?: return
+        if (s.player === exoPlayer) return
+        val (items, index, position) = currentQueue(cast)
+        val wasPlaying = cast.playWhenReady
+        scope.launch {
+            val local = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                items.map { buildPlayableItem(it.mediaId, it.mediaMetadata, container.downloads.completedFile(it.mediaId) != null) }
+            }
+            if (local.isNotEmpty()) {
+                exoPlayer.setMediaItems(local, index, position)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = wasPlaying
+            }
+            s.player = exoPlayer
+        }
+    }
+
+    /** A queue item for the TV: points at the phone's relay, with a content type it understands. */
+    private fun buildCastItem(key: String, metadata: MediaMetadata): MediaItem? {
+        val url = container.castRelay.urlFor(key) ?: return null
+        return MediaItem.Builder()
+            .setMediaId(key)
+            .setUri(url)
+            .setMimeType(container.castRelay.mimeFor(key))
+            .setMediaMetadata(metadata)
             .build()
     }
 
@@ -94,11 +170,16 @@ class PlaybackService : MediaSessionService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> = scope.future(Dispatchers.IO) {
-            val downloads = (application as MixtapeApp).container.downloads
+            val downloads = container.downloads
+            val casting = castPlayer != null && session?.player === castPlayer
             mediaItems.map { item ->
                 val key = item.mediaId
-                val offline = downloads.completedFile(key) != null
-                buildPlayableItem(key, item.mediaMetadata, offline)
+                if (casting) {
+                    buildCastItem(key, item.mediaMetadata) ?: buildPlayableItem(key, item.mediaMetadata, false)
+                } else {
+                    val offline = downloads.completedFile(key) != null
+                    buildPlayableItem(key, item.mediaMetadata, offline)
+                }
             }.toMutableList()
         }
     }
@@ -113,8 +194,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        castPlayer?.setSessionAvailabilityListener(null)
+        castPlayer?.release()
+        exoPlayer.release()
+        container.castRelay.stop()
         session?.run {
-            player.release()
             release()
         }
         session = null

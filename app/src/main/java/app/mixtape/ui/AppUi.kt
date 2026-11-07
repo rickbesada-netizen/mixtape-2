@@ -61,6 +61,8 @@ import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CollectionScreen
 import app.mixtape.ui.screens.DownloadsScreen
 import app.mixtape.ui.screens.HomeScreen
+import app.mixtape.ui.screens.ChannelScreen
+import app.mixtape.ui.screens.SubscriptionsScreen
 import app.mixtape.ui.screens.LibraryScreen
 import app.mixtape.ui.screens.MatchScreen
 import app.mixtape.ui.screens.NowPlayingScreen
@@ -222,8 +224,19 @@ fun MixtapeAppUi(container: AppContainer) {
                 startDestination = "home",
                 modifier = Modifier.padding(padding),
             ) {
-                composable("home") { HomeScreen(openPlaylist = { nav.navigate("playlist/$it") }) }
-                composable("search") { SearchScreen(openCollection = { actions.openCollection(it) }) }
+                composable("home") {
+                    HomeScreen(
+                        openPlaylist = { nav.navigate("playlist/$it") },
+                        openSubscriptions = { nav.navigate("subs") },
+                    )
+                }
+                composable("subs") {
+                    SubscriptionsScreen(onBack = { nav.popBackStack() }, openChannel = { nav.navigate("channel/$it") })
+                }
+                composable("channel/{id}") { entry ->
+                    ChannelScreen(channelId = entry.arguments?.getString("id") ?: "", onBack = { nav.popBackStack() })
+                }
+                composable("search") { SearchScreen(openCollection = { actions.openCollection(it) }, openChannel = { nav.navigate("channel/$it") }) }
                 composable("collection/{url}") { entry ->
                     CollectionScreen(
                         url = java.net.URLDecoder.decode(entry.arguments?.getString("url") ?: "", "UTF-8"),
@@ -278,6 +291,7 @@ fun MixtapeAppUi(container: AppContainer) {
                     VideoScreen(
                         videoId = java.net.URLDecoder.decode(entry.arguments?.getString("id") ?: "", "UTF-8"),
                         onBack = { nav.popBackStack() },
+                        openChannel = { nav.navigate("channel/$it") },
                     )
                 }
                 composable("nowplaying") {
