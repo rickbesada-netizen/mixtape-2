@@ -67,6 +67,9 @@ interface TrackActions {
     fun toggleLike(track: Track, liked: Boolean)
     fun download(tracks: List<Track>)
     fun addToPlaylist(track: Track)
+
+    /** Add many songs at once to one of your playlists (merging playlists). */
+    fun addAllToPlaylist(tracks: List<Track>, excludePlaylistId: Long? = null)
     fun fixMatch(track: Track)
     fun openLink(text: String)
     fun watchVideo(track: Track)
@@ -243,13 +246,21 @@ fun PlaylistPickerDialog(
     onPick: (Long) -> Unit,
     onCreate: (String) -> Unit,
     onDismiss: () -> Unit,
+    title: String = "Add to playlist",
+    note: String? = null,
 ) {
     var newName by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add to playlist") },
+        title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (note != null) {
+                    Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (playlists.isEmpty()) {
+                    Text("No playlists of your own yet. Type a name below to make one.", style = MaterialTheme.typography.bodyMedium)
+                }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp).padding(bottom = 8.dp)) {
                     items(playlists, key = { it.playlist.id }) { p ->
                         Text(

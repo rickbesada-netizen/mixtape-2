@@ -5,6 +5,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.DownloadDone
@@ -304,7 +307,7 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                 shown, liked, downloaded,
                 header = {
                     Row(
-                        Modifier.fillMaxWidth().padding(16.dp),
+                        Modifier.fillMaxWidth().padding(16.dp).horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(onClick = { actions.play(shown, 0) }) {
@@ -317,6 +320,10 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                         }
                         FilledTonalButton(onClick = { actions.download(tracks.filter { it.key !in downloaded }) }) {
                             Icon(Icons.Filled.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("All")
+                        }
+                        FilledTonalButton(onClick = { actions.addAllToPlaylist(shown, excludePlaylistId = playlistId) }) {
+                            Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                            Text(if (shown.size == tracks.size) "Add all to…" else "Add these ${shown.size} to…")
                         }
                     }
                 },
@@ -394,11 +401,12 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
             TrackList(
                 shown, liked, downloaded,
                 header = {
-                    Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.padding(16.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { actions.play(tracks, 0) }) { Text("Play all") }
                         FilledTonalButton(onClick = { actions.download(tracks.filter { it.key !in downloaded }) }) {
                             Text("Download all")
                         }
+                        FilledTonalButton(onClick = { actions.addAllToPlaylist(shown) }) { Text("Add to playlist") }
                     }
                 },
             )

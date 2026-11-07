@@ -67,6 +67,22 @@ class LibraryRepository(private val db: AppDatabase) {
         playlists.touch(playlistId, System.currentTimeMillis())
     }
 
+    /**
+     * Appends every song to a playlist, skipping ones already in it (so merging two playlists
+     * never doubles up). Returns how many were added.
+     */
+    suspend fun addAllToPlaylist(playlistId: Long, list: List<Track>): Int {
+        if (list.isEmpty()) return 0
+        saveTracks(list)
+        val existing = playlists.entries(playlistId).map { it.trackKey }.toHashSet()
+        val toAdd = list.map { it.key }.distinct().filter { it !in existing }
+        if (toAdd.isEmpty()) return 0
+        val start = playlists.maxPosition(playlistId) + 1
+        playlists.insertEntries(toAdd.mapIndexed { i, k -> PlaylistTrackEntity(playlistId, start + i, k) })
+        playlists.touch(playlistId, System.currentTimeMillis())
+        return toAdd.size
+    }
+
     suspend fun removeFromPlaylist(playlistId: Long, trackKey: String) {
         playlists.removeTrack(playlistId, trackKey)
         playlists.touch(playlistId, System.currentTimeMillis())

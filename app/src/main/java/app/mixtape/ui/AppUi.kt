@@ -50,6 +50,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.mixtape.AppContainer
 import app.mixtape.core.model.Track
+import app.mixtape.data.db.PlaylistOrigin
 import app.mixtape.player.PlayerUiState
 import app.mixtape.ui.components.Artwork
 import app.mixtape.ui.components.LocalContainer
@@ -89,6 +90,7 @@ fun MixtapeAppUi(container: AppContainer) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var pickerFor by remember { mutableStateOf<Track?>(null) }
+    var bulkPicker by remember { mutableStateOf<Pair<List<Track>, Long?>?>(null) }
     val playerState by container.player.state.collectAsStateWithLifecycle()
     val playlistsFlow = remember { container.library.playlists() }
 
@@ -124,6 +126,11 @@ fun MixtapeAppUi(container: AppContainer) {
             }
             override fun addToPlaylist(track: Track) {
                 pickerFor = track
+            }
+            override fun addAllToPlaylist(tracks: List<Track>, excludePlaylistId: Long?) {
+                if (tracks.isEmpty()) {
+                    scope.launch { snackbar.showSnackbar("Nothing to add") }
+                } else bulkPicker = tracks to excludePlaylistId
             }
             override fun openLink(text: String) {
                 scope.launch {
@@ -283,6 +290,39 @@ fun MixtapeAppUi(container: AppContainer) {
                     )
                 }
             }
+        }
+
+        bulkPicker?.let { (tracks, exclude) ->
+            val all by playlistsFlow.collectAsStateWithLifecycle(emptyList())
+            // Imported playlists (Spotify, links, CSV) are re-synced from their source, which
+            // would wipe merged songs, so merge into playlists you made yourself.
+            val own = all.filter { it.playlist.origin == PlaylistOrigin.LOCAL && it.playlist.id != exclude }
+            fun report(added: Int, name: String) {
+                val skipped = tracks.map { it.key }.distinct().size - added
+                scope.launch {
+                    snackbar.showSnackbar(
+                        "Added $added songs to $name" + if (skipped > 0) " ($skipped were already there)" else ""
+                    )
+                }
+            }
+            PlaylistPickerDialog(
+                playlists = own,
+                title = "Add ${tracks.size} songs to…",
+                note = "Pick one of your playlists to merge into, or make a new one. Songs already in it are skipped.",
+                onPick = { id ->
+                    val name = own.firstOrNull { it.playlist.id == id }?.playlist?.name ?: "playlist"
+                    scope.launch { report(container.library.addAllToPlaylist(id, tracks), name) }
+                    bulkPicker = null
+                },
+                onCreate = { name ->
+                    scope.launch {
+                        val id = container.library.createPlaylist(name)
+                        report(container.library.addAllToPlaylist(id, tracks), name)
+                    }
+                    bulkPicker = null
+                },
+                onDismiss = { bulkPicker = null },
+            )
         }
 
         pickerFor?.let { track ->
