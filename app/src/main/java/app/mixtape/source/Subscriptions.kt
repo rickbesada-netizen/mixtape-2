@@ -79,7 +79,7 @@ class SubscriptionRepository(
         val subs = dao.activeOnce()
         val gate = Semaphore(4)
         val all = coroutineScope {
-            subs.map { s -> async { gate.withPermit { runCatching { channelVideos(s.id, s.name) }.getOrDefault(emptyList()) } } }
+            subs.map { s -> async { gate.withPermit { runCatching { channelVideos(s.channelId, s.name) }.getOrDefault(emptyList()) } } }
                 .awaitAll().flatten()
         }
         feedCache = all.sortedByDescending { it.publishedAt }.take(300)
@@ -211,7 +211,7 @@ class SubscriptionRepository(
     suspend fun fillAvatars(limit: Int = 8) {
         val missing = dao.activeOnce().filter { it.avatarUrl == null }.take(limit)
         for (s in missing) {
-            runCatching { channelInfo("https://www.youtube.com/channel/${s.id}") }.onSuccess { c ->
+            runCatching { channelInfo("https://www.youtube.com/channel/${s.channelId}") }.onSuccess { c ->
                 dao.upsert(s.copy(avatarUrl = c.avatarUrl, name = c.name.ifBlank { s.name }))
             }
         }
