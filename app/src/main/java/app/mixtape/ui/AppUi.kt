@@ -58,6 +58,8 @@ import app.mixtape.ui.components.LocalTrackActions
 import app.mixtape.ui.components.PlaylistPickerDialog
 import app.mixtape.ui.components.TrackActions
 import app.mixtape.source.LinkResult
+import app.mixtape.ui.screens.CleanProgressDialog
+import app.mixtape.ui.screens.CleanStartDialog
 import app.mixtape.ui.screens.CollectionScreen
 import app.mixtape.ui.screens.DownloadsScreen
 import app.mixtape.ui.screens.HomeScreen
@@ -93,6 +95,9 @@ fun MixtapeAppUi(container: AppContainer) {
     val snackbar = remember { SnackbarHostState() }
     var pickerFor by remember { mutableStateOf<Track?>(null) }
     var bulkPicker by remember { mutableStateOf<Pair<List<Track>, Long?>?>(null) }
+    var cleanAsk by remember { mutableStateOf<Pair<String, List<Track>>?>(null) }
+    var cleanHidden by remember { mutableStateOf(false) }
+    val cleanJob by container.clean.state.collectAsStateWithLifecycle()
     val playerState by container.player.state.collectAsStateWithLifecycle()
     val playlistsFlow = remember { container.library.playlists() }
 
@@ -168,6 +173,19 @@ fun MixtapeAppUi(container: AppContainer) {
             }
             override fun openCollection(url: String) {
                 nav.navigate("collection/" + URLEncoder.encode(url, "UTF-8"))
+            }
+            override fun startRadio(track: Track) {
+                scope.launch { container.library.saveTracks(listOf(track)) }
+                container.player.startRadio(track)
+                scope.launch { snackbar.showSnackbar("Radio: songs like ${track.title}") }
+            }
+            override fun makeClean(name: String, tracks: List<Track>) {
+                when {
+                    tracks.isEmpty() -> scope.launch { snackbar.showSnackbar("Nothing to clean") }
+                    container.clean.state.value?.finished == false ->
+                        scope.launch { snackbar.showSnackbar("Already making a clean version, one at a time") }
+                    else -> cleanAsk = name to tracks
+                }
             }
             override fun fixMatch(track: Track) {
                 scope.launch {
@@ -303,6 +321,43 @@ fun MixtapeAppUi(container: AppContainer) {
                         },
                     )
                 }
+            }
+        }
+
+        cleanAsk?.let { (name, tracks) ->
+            CleanStartDialog(
+                name = name,
+                count = tracks.size,
+                onStart = { keep ->
+                    cleanAsk = null
+                    cleanHidden = false
+                    container.clean.start(name, tracks, keep)
+                },
+                onDismiss = { cleanAsk = null },
+            )
+        }
+
+        cleanJob?.let { job ->
+            if (!cleanHidden || job.finished) {
+                CleanProgressDialog(
+                    job = job,
+                    onCancel = { container.clean.cancel() },
+                    onClose = {
+                        if (job.finished) container.clean.dismiss() else cleanHidden = true
+                    },
+                    onOpen = { id ->
+                        container.clean.dismiss()
+                        nav.navigate("playlist/$id")
+                    },
+                    onDownload = { id ->
+                        container.clean.dismiss()
+                        scope.launch {
+                            val list = container.library.playlistTracksOnce(id)
+                            actions.download(list)
+                            nav.navigate("playlist/$id")
+                        }
+                    },
+                )
             }
         }
 

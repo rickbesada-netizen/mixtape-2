@@ -13,8 +13,8 @@ android {
         applicationId = "app.mixtape"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         // Supabase project for accounts + cloud sync. Set these in gradle.properties, or as
         // GitHub Actions secrets (SUPABASE_URL / SUPABASE_ANON_KEY). They can also be entered

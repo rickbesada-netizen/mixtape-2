@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
@@ -178,6 +179,10 @@ fun CollectionScreen(url: String, onBack: () -> Unit, openSavedPlaylist: (Long) 
                             FilledTonalButton(onClick = { actions.addAllToPlaylist(detail.tracks) }) {
                                 Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
                                 Text("Add to playlist")
+                            }
+                            FilledTonalButton(onClick = { actions.makeClean(detail.info.title, detail.tracks) }) {
+                                Icon(Icons.Filled.CleaningServices, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                                Text("Clean version")
                             }
                         }
                     }

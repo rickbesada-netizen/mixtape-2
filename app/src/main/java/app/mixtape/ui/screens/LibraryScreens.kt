@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -264,23 +265,25 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                     Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, "Search in this list")
                 }
                 val p = playlist
-                if (p != null && (p.origin == PlaylistOrigin.SPOTIFY || p.origin == PlaylistOrigin.LINK) && p.externalId != null) {
+                if (p != null && container.playlistSync.canSync(p)) {
                     IconButton(enabled = !syncing, onClick = {
                         syncing = true
                         scope.launch {
-                            runCatching {
-                                val list = when {
-                                    p.origin == PlaylistOrigin.LINK -> container.links.refreshCollection(p.externalId).tracks
-                                    p.externalId == SPOTIFY_LIKED_ID -> container.spotify.savedTracks()
-                                    else -> container.spotify.playlistTracks(p.externalId)
+                            // If you've downloaded songs from this playlist, new songs are downloaded too.
+                            runCatching { container.playlistSync.syncPlaylist(p, downloadNew = downloadedHere > 0) }
+                                .onSuccess { r ->
+                                    val msg = when {
+                                        r == null -> "Couldn't load the playlist right now"
+                                        r.added.isEmpty() -> "Up to date"
+                                        downloadedHere > 0 -> "${r.added.size} new songs added and downloading"
+                                        else -> "${r.added.size} new songs added"
+                                    }
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
-                                container.library.upsertImportedPlaylist(
-                                    p.origin, p.externalId, p.name, p.artworkUrl, list
-                                )
-                            }.onFailure { Toast.makeText(context, it.message, Toast.LENGTH_LONG).show() }
+                                .onFailure { Toast.makeText(context, it.message, Toast.LENGTH_LONG).show() }
                             syncing = false
                         }
-                    }) { Icon(Icons.Filled.Sync, "Re-sync from Spotify") }
+                    }) { Icon(Icons.Filled.Sync, "Check for new songs") }
                 }
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete playlist") }
             },
@@ -324,6 +327,10 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                         FilledTonalButton(onClick = { actions.addAllToPlaylist(shown, excludePlaylistId = playlistId) }) {
                             Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
                             Text(if (shown.size == tracks.size) "Add all to…" else "Add these ${shown.size} to…")
+                        }
+                        FilledTonalButton(onClick = { actions.makeClean(playlist?.name ?: "Playlist", tracks) }) {
+                            Icon(Icons.Filled.CleaningServices, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                            Text("Clean version")
                         }
                     }
                 },

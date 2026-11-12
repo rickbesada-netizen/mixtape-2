@@ -227,7 +227,12 @@ fun SearchScreen(openCollection: (String) -> Unit, openChannel: (String) -> Unit
                 state.results, liked, downloaded,
                 onItemClick = { list, i -> actions.watchVideo(list[i]) },
             )
-            else -> TrackList(state.results, liked, downloaded)
+            // Like Spotify: tapping a song plays it, then similar songs (autoplay radio), rather
+            // than the rest of the search results.
+            else -> TrackList(
+                state.results, liked, downloaded,
+                onItemClick = { list, i -> actions.play(listOf(list[i]), 0) },
+            )
         }
         }
     }

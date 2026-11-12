@@ -34,6 +34,37 @@ class Settings(context: Context) {
     /** true = voices sound normal at any speed; false = pitch follows speed (nightcore / slowed). */
     val keepPitch: StateFlow<Boolean> = _keepPitch.asStateFlow()
 
+    private val _autoplay = MutableStateFlow(prefs.getBoolean("autoplay", true))
+    /** When the queue runs out, keep going with similar songs (like Spotify's autoplay). */
+    val autoplay: StateFlow<Boolean> = _autoplay.asStateFlow()
+
+    private val _autoSync = MutableStateFlow(prefs.getBoolean("auto_sync_playlists", true))
+    /** Check downloaded YouTube / Spotify / SoundCloud playlists for new songs and download them. */
+    val autoSyncPlaylists: StateFlow<Boolean> = _autoSync.asStateFlow()
+
+    private val _cleanWords = MutableStateFlow(prefs.getString("clean_words", "") ?: "")
+    /** Extra words (comma separated) that make a song count as explicit in the clean converter. */
+    val cleanWords: StateFlow<String> = _cleanWords.asStateFlow()
+
+    var lastPlaylistSyncAt: Long
+        get() = prefs.getLong("last_playlist_sync", 0L)
+        set(v) = prefs.edit().putLong("last_playlist_sync", v).apply()
+
+    fun setAutoplay(v: Boolean) {
+        prefs.edit().putBoolean("autoplay", v).apply()
+        _autoplay.value = v
+    }
+
+    fun setAutoSyncPlaylists(v: Boolean) {
+        prefs.edit().putBoolean("auto_sync_playlists", v).apply()
+        _autoSync.value = v
+    }
+
+    fun setCleanWords(v: String) {
+        prefs.edit().putString("clean_words", v).apply()
+        _cleanWords.value = v
+    }
+
     fun setSpeed(v: Float) {
         val clamped = v.coerceIn(MIN_SPEED, MAX_SPEED)
         prefs.edit().putFloat("playback_speed", clamped).apply()

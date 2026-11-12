@@ -39,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -80,6 +81,7 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
     var showQueue by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    val autoplay by container.settings.autoplay.collectAsStateWithLifecycle()
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
@@ -111,6 +113,18 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
         }
 
         if (showQueue) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Autoplay", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (state.radioLoading) "Finding similar songs..." else "Keeps playing similar songs when the queue ends",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.radioLoading) CircularProgressIndicator(Modifier.size(20.dp).padding(end = 4.dp), strokeWidth = 2.dp)
+                Switch(checked = autoplay, onCheckedChange = { player.setAutoplay(it) })
+            }
             LazyColumn(Modifier.weight(1f)) {
                 itemsIndexed(state.queue) { i, item ->
                     val current = i == state.currentIndex

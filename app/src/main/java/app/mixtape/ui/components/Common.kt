@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.VideoFile
@@ -75,6 +76,12 @@ interface TrackActions {
     fun watchVideo(track: Track)
     fun downloadVideo(track: Track)
     fun openCollection(url: String)
+
+    /** Play this song, then similar songs after it. */
+    fun startRadio(track: Track)
+
+    /** Make a clean copy of a playlist (explicit songs swapped for clean versions). */
+    fun makeClean(name: String, tracks: List<Track>)
 }
 
 val LocalTrackActions = compositionLocalOf<TrackActions> { error("No TrackActions") }
@@ -162,6 +169,11 @@ fun TrackRow(
                     text = { Text("Play next") },
                     leadingIcon = { Icon(Icons.Filled.SkipNext, null) },
                     onClick = { menu = false; actions.playNext(track) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Start radio") },
+                    leadingIcon = { Icon(Icons.Filled.Radio, null) },
+                    onClick = { menu = false; actions.startRadio(track) },
                 )
                 DropdownMenuItem(
                     text = { Text("Add to queue") },

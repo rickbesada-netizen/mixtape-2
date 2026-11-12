@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -43,12 +44,16 @@ data class PlayerUiState(
     val hasPrevious: Boolean = false,
     val speed: Float = 1f,
     val keepPitch: Boolean = true,
+    /** Similar songs are being fetched to continue the queue. */
+    val radioLoading: Boolean = false,
 )
 
 /** UI-side handle on the PlaybackService via a MediaController. */
 class PlayerConnection(
     private val context: Context,
     private val settings: app.mixtape.data.Settings,
+    private val library: app.mixtape.data.LibraryRepository,
+    private val radio: app.mixtape.source.RadioEngine,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var controller: MediaController? = null
@@ -92,6 +97,13 @@ class PlayerConnection(
         override fun onEvents(player: Player, events: Player.Events) {
             if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying) consecutiveErrors = 0
             refresh()
+            if (events.containsAny(
+                    Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED,
+                )
+            ) {
+                controller?.let { maybeAutoplay(it, force = false) }
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -137,6 +149,7 @@ class PlayerConnection(
             hasPrevious = c.hasPreviousMediaItem() || c.currentPosition > 3000,
             speed = c.playbackParameters.speed,
             keepPitch = settings.keepPitch.value,
+            radioLoading = radioJob?.isActive == true,
         )
         if (c.isPlaying) startTicker() else stopTicker()
     }
@@ -160,8 +173,86 @@ class PlayerConnection(
         ticker = null
     }
 
+    // ---- Autoplay (song radio) ----
+
+    private var radioJob: Job? = null
+    private var radioSeedKey: String? = null
+
+    /**
+     * When the queue is about to run out, append songs similar to the one playing, the way Spotify
+     * keeps going after a song you searched for. [force] starts it regardless of the setting
+     * ("Start radio").
+     */
+    private fun maybeAutoplay(c: MediaController, force: Boolean) {
+        if (!force && !settings.autoplay.value) return
+        if (c.mediaItemCount == 0) return
+        if (!force && c.repeatMode != Player.REPEAT_MODE_OFF) return
+        val remaining = if (c.shuffleModeEnabled) {
+            if (c.hasNextMediaItem()) 2 else 0
+        } else c.mediaItemCount - 1 - c.currentMediaItemIndex
+        if (!force && remaining > 1) return
+        val seedKey = c.currentMediaItem?.mediaId ?: return
+        if (radioJob?.isActive == true) return
+        if (!force && seedKey == radioSeedKey) return
+        radioSeedKey = seedKey
+
+        val queued = (0 until c.mediaItemCount).map { i ->
+            val item = c.getMediaItemAt(i)
+            val key = item.mediaId
+            Track(
+                source = runCatching { app.mixtape.core.model.SourceType.fromKey(key) }
+                    .getOrDefault(app.mixtape.core.model.SourceType.YOUTUBE),
+                sourceId = Track.sourceIdOf(key),
+                title = item.mediaMetadata.title?.toString() ?: "",
+                artist = item.mediaMetadata.artist?.toString() ?: "",
+            )
+        }
+        radioJob = scope.launch {
+            refresh()
+            try {
+                val seed = library.getTrack(seedKey) ?: queued.firstOrNull { it.key == seedKey } ?: return@launch
+                val recent = runCatching { library.recent().first().take(40) }.getOrDefault(emptyList())
+                val more = radio.similarTo(seed, queued + recent)
+                if (more.isEmpty()) return@launch
+                library.saveTracks(more)
+                val cc = controller ?: return@launch
+                val before = cc.mediaItemCount
+                val ended = cc.playbackState == Player.STATE_ENDED
+                cc.addMediaItems(more.map(PlaybackService::controllerItem))
+                if (ended && before > 0) {
+                    cc.seekTo(before, 0)
+                    cc.prepare()
+                    cc.play()
+                }
+            } finally {
+                refresh()
+            }
+        }
+    }
+
+    /** Plays this song, then a radio of similar songs after it. */
+    fun startRadio(track: Track) {
+        radioJob?.cancel()
+        radioSeedKey = null
+        withController { c ->
+            c.shuffleModeEnabled = false
+            c.setMediaItems(listOf(PlaybackService.controllerItem(track)), 0, 0)
+            c.prepare()
+            c.play()
+            maybeAutoplay(c, force = true)
+        }
+    }
+
+    fun setAutoplay(on: Boolean) {
+        settings.setAutoplay(on)
+        if (on) controller?.let { maybeAutoplay(it, force = false) }
+        refresh()
+    }
+
     fun playTracks(tracks: List<Track>, startIndex: Int = 0, shuffle: Boolean = false) {
         if (tracks.isEmpty()) return
+        radioJob?.cancel()
+        radioSeedKey = null
         withController { c ->
             c.shuffleModeEnabled = shuffle
             c.setMediaItems(tracks.map(PlaybackService::controllerItem), startIndex.coerceIn(tracks.indices), 0)

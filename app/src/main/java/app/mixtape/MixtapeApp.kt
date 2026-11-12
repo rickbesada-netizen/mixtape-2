@@ -17,7 +17,10 @@ import app.mixtape.matcher.TrackMatcher
 import app.mixtape.player.CastRelay
 import app.mixtape.player.PlayerConnection
 import app.mixtape.player.StreamResolver
+import app.mixtape.download.PlaylistSync
+import app.mixtape.source.CleanConverter
 import app.mixtape.source.HomeFeedRepository
+import app.mixtape.source.RadioEngine
 import app.mixtape.source.LinkResolver
 import app.mixtape.source.SoundCloudSource
 import app.mixtape.source.SourceRegistry
@@ -58,6 +61,7 @@ class MixtapeApp : Application() {
                 c.subscriptions.subscriptions().map { it as Any },
             )
         )
+        runCatching { c.playlistSync.schedule() }
     }
 }
 
@@ -95,5 +99,11 @@ class AppContainer(context: Context) {
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)
 
-    val player = PlayerConnection(context, settings)
+    val radio = RadioEngine(sources.youtube, matcher)
+
+    val player = PlayerConnection(context, settings, library, radio)
+
+    val playlistSync = PlaylistSync(context, library, db.playlists(), links, spotify, spotifyAuth, downloads, settings)
+
+    val clean = CleanConverter(http, sources.youtube, library, settings)
 }
