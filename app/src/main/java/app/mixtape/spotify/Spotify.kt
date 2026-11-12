@@ -265,6 +265,36 @@ class SpotifyApi(private val auth: SpotifyAuth, private val http: OkHttpClient) 
         return out.shuffled().distinctBy { it.key }.filter { it.sourceId != spId }
     }
 
+    /** Public playlists on Spotify matching [q] (Spotify returns 10 per page now). */
+    suspend fun searchPlaylists(q: String, pages: Int = 3): List<app.mixtape.core.model.RemoteCollection> {
+        val out = mutableListOf<app.mixtape.core.model.RemoteCollection>()
+        for (page in 0 until pages) {
+            val url = "https://api.spotify.com/v1/search".toHttpUrl().newBuilder()
+                .addQueryParameter("q", q)
+                .addQueryParameter("type", "playlist")
+                .addQueryParameter("limit", "10")
+                .addQueryParameter("offset", (page * 10).toString())
+                .build().toString()
+            val arr = runCatching { get(url).optJSONObject("playlists")?.optJSONArray("items") }.getOrNull() ?: break
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue // Spotify puts nulls in this list
+                val id = p.optString("id").takeIf { it.length == 22 } ?: continue
+                val owner = p.optJSONObject("owner")?.optString("display_name").orEmpty()
+                val summary = p.optJSONObject("items") ?: p.optJSONObject("tracks")
+                val count = summary?.optInt("total") ?: -1
+                out += app.mixtape.core.model.RemoteCollection(
+                    url = "https://open.spotify.com/playlist/$id",
+                    title = p.optString("name"),
+                    subtitle = listOf(owner, "Spotify", if (count > 0) "$count songs" else "").filter { it.isNotBlank() }.joinToString(" · "),
+                    artworkUrl = p.optJSONArray("images")?.optJSONObject(0)?.optString("url"),
+                    trackCount = count.toLong(),
+                )
+            }
+            if (arr.length() < 10) break
+        }
+        return out.distinctBy { it.url }
+    }
+
     private suspend fun searchTracks(q: String, limit: Int, offset: Int = 0): List<JSONObject> {
         val url = "https://api.spotify.com/v1/search".toHttpUrl().newBuilder()
             .addQueryParameter("q", q)

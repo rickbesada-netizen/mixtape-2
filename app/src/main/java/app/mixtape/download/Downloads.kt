@@ -180,7 +180,7 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineW
                     dao.markDone(key, file.absolutePath, size)
                     return@withPermit Result.success()
                 }
-                val playableKey = if (SourceType.fromKey(key) == SourceType.SPOTIFY) {
+                val playableKey = if (SourceType.fromKey(key).matchedToYouTube) {
                     Track.keyOf(SourceType.YOUTUBE, container.matcher.resolveYoutubeId(key))
                 } else key
                 val source = container.sources.forType(SourceType.fromKey(playableKey))

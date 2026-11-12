@@ -182,7 +182,7 @@ class CastRelay(
             return
         }
 
-        val playableKey = if (source == SourceType.SPOTIFY) {
+        val playableKey = if (source.matchedToYouTube) {
             Track.keyOf(SourceType.YOUTUBE, runBlocking { matcher.resolveYoutubeId(key) })
         } else key
         val stream = runBlocking {

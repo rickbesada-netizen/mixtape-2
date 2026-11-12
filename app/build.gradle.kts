@@ -13,8 +13,10 @@ android {
         applicationId = "app.mixtape"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        // Each GitHub build gets the next version number, so the in-app updater knows it's newer.
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 1000 + run
+        versionName = "0.6.$run"
 
         // Supabase project for accounts + cloud sync. Set these in gradle.properties, or as
         // GitHub Actions secrets (SUPABASE_URL / SUPABASE_ANON_KEY). They can also be entered
@@ -25,10 +27,31 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseKey.trim()}\"")
     }
 
+    // One permanent signing key for every build. Android only installs an update over an app
+    // signed with the same key, so this is what lets new versions update in place and keep your
+    // downloads instead of needing an uninstall.
+    val signingProps = java.util.Properties().apply {
+        val f = rootProject.file("keystore/signing.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    val storePw = System.getenv("MIXTAPE_STORE_PASSWORD") ?: signingProps.getProperty("MIXTAPE_STORE_PASSWORD")
+    signingConfigs {
+        if (storePw != null && rootProject.file("keystore/mixtape.jks").exists()) {
+            create("mixtape") {
+                storeFile = rootProject.file("keystore/mixtape.jks")
+                storePassword = storePw
+                keyAlias = "mixtape"
+                keyPassword = storePw
+            }
+        }
+    }
+    val mixtapeSigning = signingConfigs.findByName("mixtape")
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            if (mixtapeSigning != null) signingConfig = mixtapeSigning
         }
         release {
             isMinifyEnabled = true
@@ -39,7 +62,7 @@ android {
             )
             // Signed with the debug key so the APK installs straight away.
             // Swap in your own keystore before publishing anywhere.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = mixtapeSigning ?: signingConfigs.getByName("debug")
         }
     }
 

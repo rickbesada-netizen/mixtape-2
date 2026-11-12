@@ -56,6 +56,7 @@ class HomeFeedRepository(
     private val spotifyAuth: SpotifyAuth,
     private val madeForYou: MadeForYou,
     private val http: okhttp3.OkHttpClient,
+    private val browse: BrowseRepository,
 ) {
     private val lock = Mutex()
     private var cached: List<FeedSection> = emptyList()
@@ -94,6 +95,9 @@ class HomeFeedRepository(
                 ?: madeForYou.peek()
         }
         val charts = async { safe { spotifyEditorial() } }
+        val deezerTop = async {
+            safe { listOf(FeedSection("deezer-top", "Top playlists right now", FeedKind.COLLECTIONS, collections = browse.topPlaylists().take(30))) }
+        }
 
         val generated = mixes.await()
         val madeSection = FeedSection(
@@ -106,7 +110,7 @@ class HomeFeedRepository(
         )
         val (chartSections, popularSections) = charts.await().partition { it.id == "spotify-charts" }
 
-        (listOf(madeSection) + chartSections + forYou.await() + artistSection + music.await() + popularSections +
+        (listOf(madeSection) + chartSections + forYou.await() + artistSection + deezerTop.await() + music.await() + popularSections +
             spotifyLists.await() + trending.await() + soundcloud.await() + gaming.await())
             .filter { !it.isEmpty }
     }
@@ -124,7 +128,7 @@ class HomeFeedRepository(
         for (t in recent) {
             val videoId = when (t.source) {
                 SourceType.YOUTUBE, SourceType.YOUTUBE_VIDEO -> t.sourceId
-                SourceType.SPOTIFY -> matches.get(t.key)?.youtubeId
+                SourceType.SPOTIFY, SourceType.DEEZER -> matches.get(t.key)?.youtubeId
                 else -> null
             } ?: continue
             if (seeds.none { it.second == videoId }) seeds += t to videoId

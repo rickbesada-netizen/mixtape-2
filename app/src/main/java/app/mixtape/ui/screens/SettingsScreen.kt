@@ -48,6 +48,7 @@ fun SettingsScreen() {
     val savedWords by container.settings.cleanWords.collectAsStateWithLifecycle()
     var words by remember { mutableStateOf(savedWords) }
     var checking by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         AccountSection()
@@ -108,6 +109,18 @@ fun SettingsScreen() {
         )
         HorizontalDivider()
 
+        ListItem(
+            headlineContent = { Text("Mixtape ${container.updater.currentVersion}") },
+            supportingContent = { Text(updateStatus ?: "Tap to check for updates. Updates install over this version and keep your downloads.") },
+            modifier = Modifier.clickable {
+                updateStatus = "Checking..."
+                scope.launch {
+                    updateStatus = runCatching { container.updater.check(force = true) }
+                        .fold({ if (it == null) "You're on the latest version" else "Version ${it.versionName} is available" }, { it.message })
+                }
+            },
+        )
+        HorizontalDivider()
         ListItem(
             headlineContent = { Text("Autoplay similar songs") },
             supportingContent = { Text("When your queue ends (or you play one song from search), keep going with songs like it") },

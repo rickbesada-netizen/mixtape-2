@@ -29,7 +29,7 @@ class StreamResolver(
     suspend fun resolve(key: String): PlaybackTarget {
         downloads.completedFile(key)?.let { return PlaybackTarget.Offline(it) }
 
-        val playableKey = if (SourceType.fromKey(key) == SourceType.SPOTIFY) {
+        val playableKey = if (SourceType.fromKey(key).matchedToYouTube) {
             Track.keyOf(SourceType.YOUTUBE, matcher.resolveYoutubeId(key))
         } else key
         playableKeys[key] = playableKey

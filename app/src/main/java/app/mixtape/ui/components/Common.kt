@@ -213,7 +213,7 @@ fun TrackRow(
                     leadingIcon = { Icon(Icons.Filled.CleaningServices, null) },
                     onClick = { menu = false; actions.editClean(track) },
                 )
-                if (track.source == app.mixtape.core.model.SourceType.SPOTIFY) {
+                if (track.source.matchedToYouTube) {
                     DropdownMenuItem(
                         text = { Text("Fix YouTube match") },
                         onClick = { menu = false; actions.fixMatch(track) },

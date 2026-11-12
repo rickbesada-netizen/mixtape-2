@@ -59,6 +59,9 @@ import app.mixtape.ui.components.PlaylistPickerDialog
 import app.mixtape.ui.components.TrackActions
 import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CleanProgressDialog
+import app.mixtape.ui.screens.BrowseScreen
+import app.mixtape.ui.screens.UpdateDialogs
+import app.mixtape.ui.screens.BrowseCategoryScreen
 import app.mixtape.ui.screens.CensorScreen
 import app.mixtape.ui.screens.CleanStartDialog
 import app.mixtape.ui.screens.CollectionScreen
@@ -253,6 +256,24 @@ fun MixtapeAppUi(container: AppContainer) {
                     HomeScreen(
                         openPlaylist = { nav.navigate("playlist/$it") },
                         openSubscriptions = { nav.navigate("subs") },
+                        openBrowse = { nav.navigate("browse") },
+                    )
+                }
+                composable("browse") {
+                    BrowseScreen(
+                        onBack = { nav.popBackStack() },
+                        openCategory = { nav.navigate("browse/cat/$it") },
+                        openSearch = { nav.navigate("browse/q/" + URLEncoder.encode(it, "UTF-8")) },
+                    )
+                }
+                composable("browse/cat/{id}") { entry ->
+                    BrowseCategoryScreen(entry.arguments?.getString("id"), null, onBack = { nav.popBackStack() })
+                }
+                composable("browse/q/{q}") { entry ->
+                    BrowseCategoryScreen(
+                        null,
+                        java.net.URLDecoder.decode(entry.arguments?.getString("q") ?: "", "UTF-8"),
+                        onBack = { nav.popBackStack() },
                     )
                 }
                 composable("subs") {
@@ -336,6 +357,8 @@ fun MixtapeAppUi(container: AppContainer) {
                 }
             }
         }
+
+        UpdateDialogs()
 
         cleanAsk?.let { (name, tracks) ->
             CleanStartDialog(

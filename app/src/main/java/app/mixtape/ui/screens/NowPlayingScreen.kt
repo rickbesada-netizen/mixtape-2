@@ -257,7 +257,7 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
                 Text(if (hasEdit) "Your clean edit is on: change it" else "Make my own clean edit (bleep words out)")
             }
         }
-        if (track?.source == SourceType.SPOTIFY) {
+        if (track?.source?.matchedToYouTube == true) {
             TextButton(onClick = { onFixMatch(np.key) }) { Text("Wrong song? Fix the YouTube match") }
         }
 

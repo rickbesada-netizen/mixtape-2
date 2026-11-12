@@ -12,7 +12,13 @@ enum class SourceType(val prefix: String, val label: String) {
     SPOTIFY("sp", "Spotify"),
 
     /** A YouTube video kept as video (MP4 download / video player); sourceId is the video id. */
-    YOUTUBE_VIDEO("ytv", "Video");
+    YOUTUBE_VIDEO("ytv", "Video"),
+
+    /** Deezer song (metadata only, played through its YouTube match like Spotify). */
+    DEEZER("dz", "Deezer");
+
+    /** Songs we only have details for; the audio comes from the matching YouTube song. */
+    val matchedToYouTube: Boolean get() = this == SPOTIFY || this == DEEZER
 
     companion object {
         fun fromPrefix(prefix: String): SourceType =
@@ -97,7 +103,7 @@ private val NOISE_TAIL = Regex("(?i)\\s*[|/]\\s*(official|lyrics?|audio|video).*
  * already clean and pass through unchanged.
  */
 fun Track.display(): DisplayInfo {
-    if (source == SourceType.SPOTIFY) return DisplayInfo(title, artist)
+    if (source.matchedToYouTube) return DisplayInfo(title, artist)
     var t = title.replace(NOISE_BRACKETS, "").replace(NOISE_TAIL, "").trim()
     var a = artist
     val parts = TITLE_SPLIT.split(t, limit = 2)

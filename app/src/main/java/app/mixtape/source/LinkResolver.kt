@@ -29,6 +29,7 @@ sealed interface LinkResult {
  *  - YouTube / YouTube Music videos and playlists (incl. albums), youtu.be, Shorts
  *  - SoundCloud tracks and sets (incl. on.soundcloud.com short links)
  *  - Spotify tracks, playlists and albums (API when logged in, public embed page otherwise)
+ *  - Deezer tracks, playlists and albums (public API, incl. link.deezer.com short links)
  * Also loads playlists picked from search results.
  */
 class LinkResolver(
@@ -36,6 +37,7 @@ class LinkResolver(
     private val spotify: SpotifyApi,
     private val spotifyAuth: SpotifyAuth,
 ) {
+    private val deezer = DeezerApi(http)
     private val cache = ConcurrentHashMap<String, CollectionDetail>()
 
     fun cached(url: String): CollectionDetail? = cache[url]
@@ -54,7 +56,7 @@ class LinkResolver(
         fun looksLikeLink(text: String): Boolean {
             val t = text.trim()
             return t.startsWith("http://") || t.startsWith("https://") ||
-                Regex("^(www\\.|m\\.|music\\.)?(youtube\\.com|youtu\\.be|soundcloud\\.com|open\\.spotify\\.com|on\\.soundcloud\\.com|spotify\\.link)/").containsMatchIn(t)
+                Regex("^(www\\.|m\\.|music\\.)?(youtube\\.com|youtu\\.be|soundcloud\\.com|open\\.spotify\\.com|on\\.soundcloud\\.com|spotify\\.link|deezer\\.com|link\\.deezer\\.com|deezer\\.page\\.link)/").containsMatchIn(t)
         }
     }
 
@@ -63,13 +65,16 @@ class LinkResolver(
             ?: throw IOException("No link found")
         var url = raw
         val host0 = url.toHttpUrlOrNull()?.host ?: throw IOException("That link isn't valid")
-        if (host0 == "on.soundcloud.com" || host0.endsWith("spotify.link") || host0 == "spotify.app.link") {
+        if (host0 == "on.soundcloud.com" || host0.endsWith("spotify.link") || host0 == "spotify.app.link" ||
+            host0 == "link.deezer.com" || host0 == "deezer.page.link"
+        ) {
             url = followRedirects(url)
         }
         val host = url.toHttpUrlOrNull()?.host ?: throw IOException("That link isn't valid")
 
         return when {
             host.endsWith("spotify.com") -> resolveSpotify(url)
+            host.endsWith("deezer.com") -> resolveDeezer(url)
             host.endsWith("soundcloud.com") -> resolveNewPipe(ServiceList.SoundCloud, url)
             host.endsWith("youtube.com") || host == "youtu.be" || host.endsWith("youtube-nocookie.com") ->
                 resolveNewPipe(ServiceList.YouTube, normalizeYoutube(url))
@@ -122,6 +127,19 @@ class LinkResolver(
             }
             StreamingService.LinkType.CHANNEL -> throw IOException("Channel links aren't supported yet. Paste a song or playlist link.")
             else -> throw IOException("Couldn't read that link")
+        }
+    }
+
+    // ---------------------------------------------------------------- Deezer
+
+    private suspend fun resolveDeezer(url: String): LinkResult {
+        val m = Regex("/(?:[a-z]{2}(?:-[a-z]{2})?/)?(track|playlist|album)/(\\d+)").find(url.toHttpUrlOrNull()?.encodedPath ?: "")
+            ?: throw IOException("Only Deezer song, playlist and album links are supported")
+        val id = m.groupValues[2]
+        return when (m.groupValues[1]) {
+            "track" -> LinkResult.Single(deezer.track(id))
+            "album" -> LinkResult.Collection(deezer.album(id))
+            else -> LinkResult.Collection(deezer.playlist(id))
         }
     }
 

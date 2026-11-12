@@ -164,7 +164,7 @@ class SourceRegistry(val youtube: YouTubeSource, val soundcloud: SoundCloudSourc
     fun forType(type: SourceType): MusicSource = when (type) {
         SourceType.YOUTUBE, SourceType.YOUTUBE_VIDEO -> youtube
         SourceType.SOUNDCLOUD -> soundcloud
-        SourceType.SPOTIFY -> throw IllegalArgumentException("Spotify tracks must be matched first")
+        SourceType.SPOTIFY, SourceType.DEEZER -> throw IllegalArgumentException("Spotify / Deezer tracks must be matched first")
     }
 
     suspend fun search(query: String, filter: SearchFilter): List<Track> = when (filter) {

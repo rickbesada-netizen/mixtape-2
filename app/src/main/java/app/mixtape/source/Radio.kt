@@ -93,7 +93,7 @@ class RadioEngine(
 
     private suspend fun videoIdFor(seed: Track): String? = when (seed.source) {
         SourceType.YOUTUBE, SourceType.YOUTUBE_VIDEO -> seed.sourceId
-        SourceType.SPOTIFY -> runCatching { matcher.resolveYoutubeId(seed.key) }.getOrNull()
+        SourceType.SPOTIFY, SourceType.DEEZER -> runCatching { matcher.resolveYoutubeId(seed.key) }.getOrNull()
         SourceType.SOUNDCLOUD -> null
     }
 

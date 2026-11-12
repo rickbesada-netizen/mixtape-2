@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -96,7 +97,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit) {
+fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit, openBrowse: () -> Unit) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val vm = containerViewModel { HomeViewModel(it) }
@@ -135,6 +136,11 @@ fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit) {
 
         item {
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.AssistChip(
+                    onClick = openBrowse,
+                    label = { Text("Browse playlists") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null, Modifier.size(18.dp)) },
+                )
                 androidx.compose.material3.AssistChip(
                     onClick = openSubscriptions,
                     label = { Text(if (subs.isEmpty()) "Subscriptions" else "Subscriptions (${subs.size})") },

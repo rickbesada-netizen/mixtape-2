@@ -90,6 +90,14 @@ class AppContainer(context: Context) {
 
     val links = LinkResolver(http, spotify, spotifyAuth)
 
+    val deezer = app.mixtape.source.DeezerApi(http)
+
+    /** In-app updates from the GitHub release. */
+    val updater = app.mixtape.core.Updater(context, http)
+
+    /** Hundreds of playlists by genre / mood from Deezer, YouTube Music, Spotify and SoundCloud. */
+    val browse = app.mixtape.source.BrowseRepository(deezer, spotify, spotifyAuth)
+
     val cloud = CloudSync(context, http, db, library)
 
 
@@ -109,7 +117,7 @@ class AppContainer(context: Context) {
         links.madeForYou = { id -> m.detail(id) }
     }
 
-    val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth, madeForYou, http)
+    val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth, madeForYou, http, browse)
 
     val lyrics = LyricsClient(http)
 

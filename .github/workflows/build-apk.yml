@@ -65,6 +65,14 @@ jobs:
           if ls app/build/outputs/apk/release/*.apk >/dev/null 2>&1; then
             cp app/build/outputs/apk/release/*.apk dist/Mixtape-small.apk
           fi
+          # What the in-app updater reads: the new version number and what changed.
+          python3 - <<'PY'
+          import json, os, subprocess
+          notes = subprocess.run(["git", "log", "-1", "--pretty=%B"], capture_output=True, text=True).stdout
+          notes = "\n".join(l for l in notes.splitlines() if not l.startswith(("Co-Authored-By", "Claude-Session"))).strip()
+          run = int(os.environ["GITHUB_RUN_NUMBER"])
+          json.dump({"versionCode": 1000 + run, "versionName": f"0.6.{run}", "notes": notes}, open("dist/version.json", "w"))
+          PY
 
       - name: Publish latest release
         if: github.event_name != 'pull_request'
@@ -77,4 +85,6 @@ jobs:
             Install Mixtape.apk. Mixtape-small.apk is a smaller optimised build.
           prerelease: false
           make_latest: true
-          files: dist/*.apk
+          files: |
+            dist/*.apk
+            dist/version.json

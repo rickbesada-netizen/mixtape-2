@@ -67,6 +67,32 @@ object NewPipeCollections {
                 }
         }
 
+    /** YouTube Music's own playlists (featured and community) for a search. */
+    suspend fun youtubeMusicPlaylists(query: String): List<RemoteCollection> = withContext(Dispatchers.IO) {
+        val service = ServiceList.YouTube
+        val extractor = service.getSearchExtractor(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS), "")
+        extractor.fetchPage()
+        val items = extractor.initialPage.items.toMutableList()
+        val next = extractor.initialPage.nextPage
+        if (items.size < 30 && Page.isValid(next)) {
+            runCatching { extractor.getPage(next) }.getOrNull()?.let { items += it.items }
+        }
+        items.filterIsInstance<PlaylistInfoItem>().mapNotNull { p ->
+            val url = p.url ?: return@mapNotNull null
+            val count = p.streamCount
+            RemoteCollection(
+                url = url,
+                title = p.name ?: "Playlist",
+                subtitle = listOfNotNull(
+                    p.uploaderName?.takeIf { it.isNotBlank() } ?: "YouTube Music",
+                    if (count > 0) "$count songs" else null,
+                ).joinToString(" · "),
+                artworkUrl = p.thumbnails.bestUrl(),
+                trackCount = count,
+            )
+        }
+    }
+
     suspend fun loadPlaylist(service: StreamingService, url: String): CollectionDetail =
         withContext(Dispatchers.IO) {
             val info = PlaylistInfo.getInfo(service, url)
