@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -30,7 +32,7 @@ android {
     // One permanent signing key for every build. Android only installs an update over an app
     // signed with the same key, so this is what lets new versions update in place and keep your
     // downloads instead of needing an uninstall.
-    val signingProps = java.util.Properties().apply {
+    val signingProps = Properties().apply {
         val f = rootProject.file("keystore/signing.properties")
         if (f.exists()) f.inputStream().use { load(it) }
     }
