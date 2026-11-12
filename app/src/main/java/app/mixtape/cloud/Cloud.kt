@@ -331,6 +331,7 @@ class CloudSync(
             }
         }
         changes += pullSubscriptions()
+        changes += pullCensor()
         return changes
     }
 
@@ -387,6 +388,7 @@ class CloudSync(
                 .put("youtube_id", it.youtubeId).put("manual", it.manual)
         })
         pushSubscriptions(userId)
+        pushCensor(userId)
         return pushed
     }
 
@@ -434,6 +436,50 @@ class CloudSync(
                 .put("deleted", it.deleted)
         }
         upsert("subscriptions", rows)
+    }
+
+    // ---------------------------------------------------------------- clean edits
+
+    private var censorTableMissing = false
+
+    private suspend fun pullCensor(): Int {
+        val remote = try {
+            getAll("censor_edits", "track_key")
+        } catch (e: CloudHttpException) {
+            if (e.code == 404 || e.message?.contains("censor_edits") == true) { censorTableMissing = true; return 0 }
+            throw e
+        }
+        censorTableMissing = false
+        var changes = 0
+        val dao = db.censor()
+        for (r in remote) {
+            val key = r.optString("track_key")
+            if (key.isEmpty()) continue
+            val at = r.optLong("updated_at", 0)
+            val local = dao.get(key)
+            if (local == null || at > local.updatedAt) {
+                dao.upsert(
+                    app.mixtape.data.db.CensorEntity(
+                        trackKey = key,
+                        ranges = r.optString("ranges"),
+                        beep = r.optBoolean("beep", true),
+                        updatedAt = at,
+                        deleted = r.optBoolean("deleted", false),
+                    )
+                )
+                changes++
+            }
+        }
+        return changes
+    }
+
+    private suspend fun pushCensor(userId: String) {
+        if (censorTableMissing) return
+        val rows = db.censor().allOnce().map {
+            JSONObject().put("user_id", userId).put("track_key", it.trackKey).put("ranges", it.ranges)
+                .put("beep", it.beep).put("updated_at", it.updatedAt).put("deleted", it.deleted)
+        }
+        upsert("censor_edits", rows)
     }
 
     // ---------------------------------------------------------------- deletions

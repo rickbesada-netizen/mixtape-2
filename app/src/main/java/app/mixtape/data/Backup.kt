@@ -151,6 +151,11 @@ class BackupManager(
             subsJson.put(JSONObject().put("channelId", it.channelId).put("name", it.name).put("avatarUrl", it.avatarUrl ?: JSONObject.NULL))
         }
 
+        val censorJson = JSONArray()
+        db.censor().allOnce().filter { !it.deleted }.forEach {
+            censorJson.put(JSONObject().put("key", it.trackKey).put("ranges", it.ranges).put("beep", it.beep).put("updatedAt", it.updatedAt))
+        }
+
         val manifest = JSONObject()
             .put("app", "Mixtape").put("version", 1)
             .put("exportedAt", System.currentTimeMillis())
@@ -158,6 +163,7 @@ class BackupManager(
             .put("tracks", tracksJson).put("playlists", playlistsJson)
             .put("matches", matchesJson).put("downloads", downloadsJson)
             .put("subscriptions", subsJson)
+            .put("cleanEdits", censorJson)
         return manifest to done
     }
 
@@ -367,6 +373,18 @@ class BackupManager(
                     System.currentTimeMillis(),
                 )
             )
+        }
+
+        val cj = m.optJSONArray("cleanEdits") ?: JSONArray()
+        for (i in 0 until cj.length()) {
+            val o = cj.getJSONObject(i)
+            val key = o.optString("key")
+            if (key.isEmpty()) continue
+            val at = o.optLong("updatedAt", System.currentTimeMillis())
+            val local = db.censor().get(key)
+            if (local == null || at > local.updatedAt) {
+                db.censor().upsert(app.mixtape.data.db.CensorEntity(key, o.optString("ranges"), o.optBoolean("beep", true), at))
+            }
         }
 
         val mj = m.optJSONArray("matches") ?: JSONArray()

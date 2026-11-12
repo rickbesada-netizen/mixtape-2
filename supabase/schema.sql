@@ -77,3 +77,17 @@ create table if not exists public.subscriptions (
 alter table public.subscriptions enable row level security;
 drop policy if exists "own rows" on public.subscriptions;
 create policy "own rows" on public.subscriptions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- v3: your own clean edits (bleeped parts of songs). Run this part on its own if you set up the project earlier.
+create table if not exists public.censor_edits (
+  user_id     uuid    not null default auth.uid() references auth.users (id) on delete cascade,
+  track_key   text    not null,
+  ranges      text    not null default '',
+  beep        boolean not null default true,
+  updated_at  bigint  not null default 0,
+  deleted     boolean not null default false,
+  primary key (user_id, track_key)
+);
+alter table public.censor_edits enable row level security;
+drop policy if exists "own rows" on public.censor_edits;
+create policy "own rows" on public.censor_edits for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

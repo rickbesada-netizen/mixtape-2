@@ -40,6 +40,10 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import app.mixtape.data.RadioSource
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -82,6 +86,9 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
     var showQueue by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     val autoplay by container.settings.autoplay.collectAsStateWithLifecycle()
+    val radioSource by container.settings.radioSource.collectAsStateWithLifecycle()
+    val spotifyConnected by container.spotifyAuth.loggedIn.collectAsStateWithLifecycle()
+    val edits by container.censor.edits.collectAsStateWithLifecycle()
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
@@ -124,6 +131,27 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
                 }
                 if (state.radioLoading) CircularProgressIndicator(Modifier.size(20.dp).padding(end = 4.dp), strokeWidth = 2.dp)
                 Switch(checked = autoplay, onCheckedChange = { player.setAutoplay(it) })
+            }
+            if (autoplay) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    RadioSource.entries.forEach { src ->
+                        FilterChip(
+                            selected = radioSource == src,
+                            onClick = { if (radioSource != src) player.setRadioSource(src) },
+                            label = { Text(src.label) },
+                        )
+                    }
+                }
+                if ((radioSource == RadioSource.SPOTIFY || radioSource == RadioSource.MIX) && !spotifyConnected) {
+                    Text(
+                        "Connect Spotify in Library > Spotify to include Spotify's picks. Using YouTube Music until then.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             LazyColumn(Modifier.weight(1f)) {
                 itemsIndexed(state.queue) { i, item ->
@@ -222,6 +250,12 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
 
         if (np.key.startsWith("yt:")) {
             TextButton(onClick = { onWatchVideo(np.key.removePrefix("yt:")) }) { Text("Watch the video") }
+        }
+        track?.let { tt ->
+            val hasEdit = edits.containsKey(tt.key)
+            TextButton(onClick = { actions.editClean(tt) }) {
+                Text(if (hasEdit) "Your clean edit is on: change it" else "Make my own clean edit (bleep words out)")
+            }
         }
         if (track?.source == SourceType.SPOTIFY) {
             TextButton(onClick = { onFixMatch(np.key) }) { Text("Wrong song? Fix the YouTube match") }

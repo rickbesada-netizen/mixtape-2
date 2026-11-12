@@ -39,6 +39,7 @@ class PlaybackService : MediaSessionService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var exoPlayer: ExoPlayer
     private var castPlayer: CastPlayer? = null
+    private var censorEngine: CensorEngine? = null
     private val container get() = (application as MixtapeApp).container
 
     override fun onCreate() {
@@ -76,6 +77,9 @@ class PlaybackService : MediaSessionService() {
         }
         player.addListener(historyListener)
         exoPlayer = player
+
+        // Your clean edits: beep / mute the marked parts while songs play on the phone.
+        censorEngine = CensorEngine(container.censor, container.settings) { exoPlayer }.also { it.start() }
 
         // Chromecast: when a Cast session starts, the queue moves to the TV and the phone becomes
         // the remote; when it ends, playback comes back to the phone where it left off.
@@ -194,6 +198,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        censorEngine?.stop()
         castPlayer?.setSessionAvailabilityListener(null)
         castPlayer?.release()
         exoPlayer.release()

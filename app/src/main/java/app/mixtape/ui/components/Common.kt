@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.VideoFile
@@ -82,6 +83,9 @@ interface TrackActions {
 
     /** Make a clean copy of a playlist (explicit songs swapped for clean versions). */
     fun makeClean(name: String, tracks: List<Track>)
+
+    /** Open the editor to bleep out parts of a song yourself. */
+    fun editClean(track: Track)
 }
 
 val LocalTrackActions = compositionLocalOf<TrackActions> { error("No TrackActions") }
@@ -204,6 +208,11 @@ fun TrackRow(
                         onClick = { menu = false; actions.downloadVideo(track) },
                     )
                 }
+                DropdownMenuItem(
+                    text = { Text("Make my own clean edit") },
+                    leadingIcon = { Icon(Icons.Filled.CleaningServices, null) },
+                    onClick = { menu = false; actions.editClean(track) },
+                )
                 if (track.source == app.mixtape.core.model.SourceType.SPOTIFY) {
                     DropdownMenuItem(
                         text = { Text("Fix YouTube match") },

@@ -177,6 +177,8 @@ class PlayerConnection(
 
     private var radioJob: Job? = null
     private var radioSeedKey: String? = null
+    /** Songs autoplay added, so changing the autoplay source can swap them out. */
+    private val radioKeys = HashSet<String>()
 
     /**
      * When the queue is about to run out, append songs similar to the one playing, the way Spotify
@@ -215,6 +217,7 @@ class PlayerConnection(
                 val more = radio.similarTo(seed, queued + recent)
                 if (more.isEmpty()) return@launch
                 library.saveTracks(more)
+                radioKeys += more.map { it.key }
                 val cc = controller ?: return@launch
                 val before = cc.mediaItemCount
                 val ended = cc.playbackState == Player.STATE_ENDED
@@ -243,6 +246,25 @@ class PlayerConnection(
         }
     }
 
+    /** Switch where autoplay's songs come from, and redo the upcoming autoplay songs straight away. */
+    fun setRadioSource(source: app.mixtape.data.RadioSource) {
+        settings.setRadioSource(source)
+        withController { c ->
+            radioJob?.cancel()
+            val current = c.currentMediaItemIndex
+            for (i in c.mediaItemCount - 1 downTo current + 1) {
+                if (c.getMediaItemAt(i).mediaId in radioKeys) c.removeMediaItem(i)
+            }
+            radioSeedKey = null
+            if (settings.autoplay.value && c.mediaItemCount > 0) maybeAutoplay(c, force = true)
+        }
+    }
+
+    /** The exact play position right now (the UI state only updates twice a second). */
+    fun positionNow(): Long = controller?.currentPosition?.coerceAtLeast(0) ?: _state.value.positionMs
+
+    fun seekToAndPlay(ms: Long) = withController { it.seekTo(ms.coerceAtLeast(0)); it.play() }
+
     fun setAutoplay(on: Boolean) {
         settings.setAutoplay(on)
         if (on) controller?.let { maybeAutoplay(it, force = false) }
@@ -253,6 +275,7 @@ class PlayerConnection(
         if (tracks.isEmpty()) return
         radioJob?.cancel()
         radioSeedKey = null
+        radioKeys.clear()
         withController { c ->
             c.shuffleModeEnabled = shuffle
             c.setMediaItems(tracks.map(PlaybackService::controllerItem), startIndex.coerceIn(tracks.indices), 0)

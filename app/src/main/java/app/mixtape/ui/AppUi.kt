@@ -59,6 +59,7 @@ import app.mixtape.ui.components.PlaylistPickerDialog
 import app.mixtape.ui.components.TrackActions
 import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CleanProgressDialog
+import app.mixtape.ui.screens.CensorScreen
 import app.mixtape.ui.screens.CleanStartDialog
 import app.mixtape.ui.screens.CollectionScreen
 import app.mixtape.ui.screens.DownloadsScreen
@@ -187,6 +188,12 @@ fun MixtapeAppUi(container: AppContainer) {
                     else -> cleanAsk = name to tracks
                 }
             }
+            override fun editClean(track: Track) {
+                scope.launch {
+                    container.library.saveTracks(listOf(track))
+                    nav.navigate("censor/" + URLEncoder.encode(track.key, "UTF-8"))
+                }
+            }
             override fun fixMatch(track: Track) {
                 scope.launch {
                     container.library.saveTracks(listOf(track))
@@ -207,7 +214,7 @@ fun MixtapeAppUi(container: AppContainer) {
     CompositionLocalProvider(LocalContainer provides container, LocalTrackActions provides actions) {
         val backStack by nav.currentBackStackEntryAsState()
         val route = backStack?.destination?.route
-        val showChrome = route != "nowplaying" && route?.startsWith("video/") != true
+        val showChrome = route != "nowplaying" && route?.startsWith("video/") != true && route?.startsWith("censor/") != true
 
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -312,6 +319,12 @@ fun MixtapeAppUi(container: AppContainer) {
                         openChannel = { nav.navigate("channel/$it") },
                     )
                 }
+                composable("censor/{key}") { entry ->
+                    CensorScreen(
+                        trackKey = java.net.URLDecoder.decode(entry.arguments?.getString("key") ?: "", "UTF-8"),
+                        onBack = { nav.popBackStack() },
+                    )
+                }
                 composable("nowplaying") {
                     NowPlayingScreen(
                         onBack = { nav.popBackStack() },
@@ -338,7 +351,9 @@ fun MixtapeAppUi(container: AppContainer) {
         }
 
         cleanJob?.let { job ->
-            if (!cleanHidden || job.finished) {
+            // While you're making your own edit from the summary, the summary waits until you come back.
+            val editing = route?.startsWith("censor/") == true
+            if ((!cleanHidden || job.finished) && !editing) {
                 CleanProgressDialog(
                     job = job,
                     onCancel = { container.clean.cancel() },
@@ -348,6 +363,11 @@ fun MixtapeAppUi(container: AppContainer) {
                     onOpen = { id ->
                         container.clean.dismiss()
                         nav.navigate("playlist/$id")
+                    },
+                    onEdit = { t ->
+                        // You're making it clean yourself, so it belongs in the clean playlist.
+                        job.playlistId?.let { id -> scope.launch { container.library.addAllToPlaylist(id, listOf(t)) } }
+                        actions.editClean(t)
                     },
                     onDownload = { id ->
                         container.clean.dismiss()

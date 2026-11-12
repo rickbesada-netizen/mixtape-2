@@ -21,6 +21,8 @@ import app.mixtape.download.PlaylistSync
 import app.mixtape.source.CleanConverter
 import app.mixtape.source.HomeFeedRepository
 import app.mixtape.source.RadioEngine
+import app.mixtape.source.LyricsClient
+import app.mixtape.player.CensorStore
 import app.mixtape.source.LinkResolver
 import app.mixtape.source.SoundCloudSource
 import app.mixtape.source.SourceRegistry
@@ -59,6 +61,7 @@ class MixtapeApp : Application() {
                 c.library.playlists().map { it as Any },
                 c.downloads.doneKeys().map { it as Any },
                 c.subscriptions.subscriptions().map { it as Any },
+                c.censor.edits.map { it as Any },
             )
         )
         runCatching { c.playlistSync.schedule() }
@@ -99,11 +102,16 @@ class AppContainer(context: Context) {
     /** A link shared into the app from another app, waiting to be opened by the UI. */
     val pendingLink = MutableStateFlow<String?>(null)
 
-    val radio = RadioEngine(sources.youtube, matcher)
+    val radio = RadioEngine(sources.youtube, sources.soundcloud, matcher, spotify, spotifyAuth, settings)
+
+    val lyrics = LyricsClient(http)
+
+    /** Your own clean edits (beeped / muted parts of songs). */
+    val censor = CensorStore(db.censor(), lyrics, settings)
 
     val player = PlayerConnection(context, settings, library, radio)
 
     val playlistSync = PlaylistSync(context, library, db.playlists(), links, spotify, spotifyAuth, downloads, settings)
 
-    val clean = CleanConverter(http, sources.youtube, library, settings)
+    val clean = CleanConverter(lyrics, sources.youtube, library, settings, ownEdits = { censor.keys() })
 }

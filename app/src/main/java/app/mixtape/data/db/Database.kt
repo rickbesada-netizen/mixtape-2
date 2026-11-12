@@ -383,13 +383,41 @@ interface SubscriptionDao {
     suspend fun upsertAll(s: List<SubscriptionEntity>)
 }
 
+/**
+ * Your own clean edit of a song: the parts to beep or mute. [ranges] is "start-end,start-end" in
+ * milliseconds. [beep] false = silence instead of a beep. Deleted rows stay as tombstones for sync.
+ */
+@Entity(tableName = "censor_edits")
+data class CensorEntity(
+    @PrimaryKey val trackKey: String,
+    val ranges: String,
+    val beep: Boolean = true,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val deleted: Boolean = false,
+)
+
+@Dao
+interface CensorDao {
+    @Query("SELECT * FROM censor_edits WHERE deleted = 0")
+    fun active(): Flow<List<CensorEntity>>
+
+    @Query("SELECT * FROM censor_edits")
+    suspend fun allOnce(): List<CensorEntity>
+
+    @Query("SELECT * FROM censor_edits WHERE trackKey = :key")
+    suspend fun get(key: String): CensorEntity?
+
+    @Upsert
+    suspend fun upsert(e: CensorEntity)
+}
+
 @Database(
     entities = [
         TrackEntity::class, PlaylistEntity::class, PlaylistTrackEntity::class,
         DownloadEntity::class, MatchEntity::class, HistoryEntity::class,
-        SubscriptionEntity::class,
+        SubscriptionEntity::class, CensorEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -399,6 +427,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun matches(): MatchDao
     abstract fun history(): HistoryDao
     abstract fun subscriptions(): SubscriptionDao
+    abstract fun censor(): CensorDao
 
     companion object {
         /** v2: playlists get a cloud sync id and an updated-at time. Keeps everyone's library. */
@@ -419,9 +448,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v4: your own clean edits (beeped / muted parts of songs). */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `censor_edits` (`trackKey` TEXT NOT NULL, `ranges` TEXT NOT NULL, " +
+                        "`beep` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`trackKey`))"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "mixtape.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }

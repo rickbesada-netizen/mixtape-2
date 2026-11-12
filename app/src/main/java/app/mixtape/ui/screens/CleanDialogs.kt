@@ -77,6 +77,7 @@ fun CleanProgressDialog(
     onClose: () -> Unit,
     onOpen: (Long) -> Unit,
     onDownload: (Long) -> Unit,
+    onEdit: (app.mixtape.core.model.Track) -> Unit,
 ) {
     if (!job.finished) {
         AlertDialog(
@@ -139,6 +140,11 @@ fun CleanProgressDialog(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    if (item.status == CleanStatus.REMOVED || item.status == CleanStatus.KEPT ||
+                                        item.status == CleanStatus.UNCHECKED
+                                    ) {
+                                        TextButton(onClick = { onEdit(item.original) }) { Text("Make my own clean edit") }
+                                    }
                                 }
                             }
                         }

@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mixtape.BuildConfig
 import app.mixtape.source.StreamQuality
+import app.mixtape.data.RadioSource
 import app.mixtape.ui.components.LocalContainer
 import app.mixtape.ui.components.SectionTitle
 import kotlinx.coroutines.launch
@@ -42,6 +43,7 @@ fun SettingsScreen() {
     val videoQuality by container.settings.videoQuality.collectAsStateWithLifecycle()
     val hiResMp4 by container.settings.hiResAsMp4.collectAsStateWithLifecycle()
     val autoplay by container.settings.autoplay.collectAsStateWithLifecycle()
+    val radioSource by container.settings.radioSource.collectAsStateWithLifecycle()
     val autoSync by container.settings.autoSyncPlaylists.collectAsStateWithLifecycle()
     val savedWords by container.settings.cleanWords.collectAsStateWithLifecycle()
     var words by remember { mutableStateOf(savedWords) }
@@ -111,6 +113,17 @@ fun SettingsScreen() {
             supportingContent = { Text("When your queue ends (or you play one song from search), keep going with songs like it") },
             trailingContent = { Switch(checked = autoplay, onCheckedChange = { container.player.setAutoplay(it) }) },
         )
+        if (autoplay) {
+            Text("Autoplay songs come from", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            RadioSource.entries.forEach { src ->
+                ListItem(
+                    headlineContent = { Text(src.label) },
+                    supportingContent = { Text(src.detail) },
+                    leadingContent = { RadioButton(selected = radioSource == src, onClick = null) },
+                    modifier = Modifier.clickable { container.player.setRadioSource(src) },
+                )
+            }
+        }
         ListItem(
             headlineContent = { Text("Auto-download new playlist songs") },
             supportingContent = {

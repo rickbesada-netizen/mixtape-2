@@ -46,6 +46,28 @@ class Settings(context: Context) {
     /** Extra words (comma separated) that make a song count as explicit in the clean converter. */
     val cleanWords: StateFlow<String> = _cleanWords.asStateFlow()
 
+    private val _censorOffset = MutableStateFlow(prefs.getLong("censor_offset_ms", 0L))
+    /** Moves bleeps earlier (+) or later (-) to make up for headphone / speaker lag. */
+    val censorOffsetMs: StateFlow<Long> = _censorOffset.asStateFlow()
+
+    fun setCensorOffsetMs(v: Long) {
+        val c = v.coerceIn(-500L, 500L)
+        prefs.edit().putLong("censor_offset_ms", c).apply()
+        _censorOffset.value = c
+    }
+
+    private val _radioSource = MutableStateFlow(
+        runCatching { RadioSource.valueOf(prefs.getString("radio_source", null) ?: "YOUTUBE_MUSIC") }
+            .getOrDefault(RadioSource.YOUTUBE_MUSIC)
+    )
+    /** Where autoplay's next songs come from. */
+    val radioSource: StateFlow<RadioSource> = _radioSource.asStateFlow()
+
+    fun setRadioSource(v: RadioSource) {
+        prefs.edit().putString("radio_source", v.name).apply()
+        _radioSource.value = v
+    }
+
     var lastPlaylistSyncAt: Long
         get() = prefs.getLong("last_playlist_sync", 0L)
         set(v) = prefs.edit().putLong("last_playlist_sync", v).apply()
@@ -100,4 +122,11 @@ class Settings(context: Context) {
         const val MIN_SPEED = 0.25f
         const val MAX_SPEED = 4f
     }
+}
+
+enum class RadioSource(val label: String, val detail: String) {
+    YOUTUBE_MUSIC("YouTube Music", "YouTube Music's song radio"),
+    SPOTIFY("Spotify", "Spotify search for similar songs, topped up with YouTube Music radio (needs Spotify connected)"),
+    SOUNDCLOUD("SoundCloud", "SoundCloud's related tracks"),
+    MIX("Mix of all", "Takes turns between YouTube Music, SoundCloud and Spotify"),
 }

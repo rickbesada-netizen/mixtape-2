@@ -24,16 +24,11 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONArray
-import org.json.JSONObject
-import java.text.Normalizer
 import kotlin.math.abs
 
 enum class CleanStatus(val label: String) {
     CLEAN("Already clean"),
+    MY_EDIT("Kept (your own clean edit)"),
     SWAPPED("Swapped for clean version"),
     REMOVED("Left out (no clean version found)"),
     KEPT("Kept (explicit, no clean version found)"),
@@ -70,10 +65,12 @@ data class CleanJob(
  *     (or kept, if you choose).
  */
 class CleanConverter(
-    private val http: OkHttpClient,
+    private val lyricsClient: LyricsClient,
     private val youtube: YouTubeSource,
     private val library: LibraryRepository,
     private val settings: Settings,
+    /** Songs you've made your own clean edit of (beeped / muted parts). */
+    private val ownEdits: () -> Set<String>,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -129,6 +126,8 @@ class CleanConverter(
         val shown = track.display()
         val rawTitle = track.title.lowercase()
 
+        if (track.key in ownEdits()) return CleanItem(track, track, CleanStatus.MY_EDIT)
+
         if (CLEAN_LABEL.containsMatchIn(rawTitle) && !EXPLICIT_LABEL.containsMatchIn(rawTitle)) {
             return CleanItem(track, track, CleanStatus.CLEAN)
         }
@@ -138,10 +137,10 @@ class CleanConverter(
         var reason = titleHit
         var lyricsFound = false
         if (reason == null) {
-            val lyrics = fetchLyrics(shown.title, shown.artist, track.durationSec)
+            val lyrics = lyricsClient.find(shown.title, shown.artist, track.durationSec)
             if (lyrics != null) {
                 lyricsFound = true
-                reason = filter.findAll(lyrics).map { it.value.lowercase() }.distinct().take(4)
+                reason = filter.findAll(lyrics.plain).map { it.value.lowercase() }.distinct().take(4)
                     .toList().takeIf { it.isNotEmpty() }?.joinToString(", ")
             }
         }
@@ -156,55 +155,6 @@ class CleanConverter(
             keepIfNoClean -> CleanItem(track, track, CleanStatus.KEPT, reason)
             else -> CleanItem(track, null, CleanStatus.REMOVED, reason)
         }
-    }
-
-    /** Lyrics from LRCLIB (lrclib.net). Returns "" for instrumentals, null if not found. */
-    private suspend fun fetchLyrics(title: String, artist: String, durationSec: Long): String? = withContext(Dispatchers.IO) {
-        val primaryArtist = artist.split(",", "&", " feat", " ft.", " x ").first().trim()
-        val attempts = listOf(
-            "https://lrclib.net/api/search".toHttpUrl().newBuilder()
-                .addQueryParameter("track_name", title)
-                .addQueryParameter("artist_name", primaryArtist)
-                .build(),
-            "https://lrclib.net/api/search".toHttpUrl().newBuilder()
-                .addQueryParameter("q", "$primaryArtist $title")
-                .build(),
-        )
-        for (url in attempts) {
-            val arr = runCatching {
-                val req = Request.Builder().url(url)
-                    .header("User-Agent", "Mixtape (https://github.com/rickbesada-netizen/mixtape-2)")
-                    .build()
-                http.newCall(req).execute().use { r ->
-                    if (!r.isSuccessful) null else JSONArray(r.body?.string().orEmpty())
-                }
-            }.getOrNull() ?: continue
-            val best = pickLyrics(arr, title, durationSec) ?: continue
-            if (best.optBoolean("instrumental")) return@withContext ""
-            val plain = best.optString("plainLyrics").takeIf { it.isNotBlank() && it != "null" }
-                ?: best.optString("syncedLyrics").takeIf { it.isNotBlank() && it != "null" }
-                    ?.replace(Regex("\\[\\d+:\\d+(\\.\\d+)?]"), "")
-            if (plain != null) return@withContext plain
-        }
-        null
-    }
-
-    private fun pickLyrics(arr: JSONArray, title: String, durationSec: Long): JSONObject? {
-        val want = tokens(title)
-        var best: JSONObject? = null
-        var bestScore = -1.0
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val got = tokens(o.optString("trackName"))
-            if (want.isEmpty() || got.isEmpty()) continue
-            val overlap = want.intersect(got).size.toDouble() / want.size
-            if (overlap < 0.6) continue
-            val d = o.optDouble("duration", 0.0)
-            val durOk = durationSec <= 0 || d <= 0 || abs(d - durationSec) <= 8
-            val score = overlap + (if (durOk) 0.5 else 0.0)
-            if (score > bestScore) { bestScore = score; best = o }
-        }
-        return best
     }
 
     /** A version of the same song labelled clean / radio edit / edited / censored. */
@@ -252,18 +202,9 @@ class CleanConverter(
     private fun containsWord(text: String, word: String) =
         Regex("(^|[^a-z0-9])" + Regex.escape(word) + "($|[^a-z0-9])").containsMatchIn(text)
 
-    private fun tokens(s: String): Set<String> =
-        Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD)
-            .replace(Regex("\\p{M}+"), "")
-            .replace(Regex("\\(.*?\\)|\\[.*?]"), " ")
-            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
-            .split(" ")
-            .filter { it.isNotBlank() && it !in STOP }
-            .toSet()
+    private fun tokens(s: String): Set<String> = LyricsClient.tokens(s)
 
     companion object {
-        private val STOP = setOf("the", "a", "an", "and", "of", "feat", "ft", "official", "video", "audio", "lyrics", "lyric")
-
         val CLEAN_LABEL = Regex("(?i)\\b(clean|radio edit|radio version|edited|censored|kidz bop)\\b")
         val EXPLICIT_LABEL = Regex("(?i)\\b(explicit|dirty|uncensored|uncut)\\b")
 

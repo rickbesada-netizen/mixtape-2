@@ -5,6 +5,7 @@ import app.mixtape.core.model.SourceType
 import app.mixtape.core.model.Track
 import app.mixtape.core.model.display
 import app.mixtape.core.net.YouTubeLimits
+import app.mixtape.data.RadioSource
 import app.mixtape.matcher.TrackMatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,25 +29,61 @@ import java.text.Normalizer
  */
 class RadioEngine(
     private val youtube: YouTubeSource,
+    private val soundcloud: SoundCloudSource,
     private val matcher: TrackMatcher,
+    private val spotify: app.mixtape.spotify.SpotifyApi,
+    private val spotifyAuth: app.mixtape.spotify.SpotifyAuth,
+    private val settings: app.mixtape.data.Settings,
 ) {
     /**
      * @param avoid songs already in the queue or played recently (by key and by title)
      */
     suspend fun similarTo(seed: Track, avoid: List<Track>, limit: Int = 25): List<Track> = withContext(Dispatchers.IO) {
-        val raw = runCatching {
-            when (seed.source) {
-                SourceType.SOUNDCLOUD -> soundcloudRelated(seed).ifEmpty { youtubeRadioBySearch(seed) }
-                else -> {
-                    val videoId = videoIdFor(seed)
-                    if (videoId != null) youtubeRadio(videoId) else youtubeRadioBySearch(seed)
-                }
-            }
-        }.getOrElse {
+        val source = settings.radioSource.value
+        val spotifyOn = spotifyAuth.loggedIn.value
+        val raw = when (source) {
+            RadioSource.YOUTUBE_MUSIC -> fromYouTube(seed)
+            RadioSource.SOUNDCLOUD -> fromSoundCloud(seed).ifEmpty { fromYouTube(seed) }
+            RadioSource.SPOTIFY ->
+                if (spotifyOn) interleave(fromSpotify(seed), fromYouTube(seed)) else fromYouTube(seed)
+            RadioSource.MIX -> interleave(
+                fromYouTube(seed),
+                fromSoundCloud(seed),
+                if (spotifyOn) fromSpotify(seed) else emptyList(),
+            )
+        }
+        curate(seed, raw, avoid, limit)
+    }
+
+    private suspend fun fromYouTube(seed: Track): List<Track> = guarded {
+        when (seed.source) {
+            SourceType.SOUNDCLOUD -> youtubeRadioBySearch(seed)
+            else -> videoIdFor(seed)?.let { youtubeRadio(it) } ?: youtubeRadioBySearch(seed)
+        }
+    }
+
+    private suspend fun fromSoundCloud(seed: Track): List<Track> = guarded {
+        val scSeed = if (seed.source == SourceType.SOUNDCLOUD) seed else {
+            val shown = seed.display()
+            soundcloud.search("${shown.artist} ${shown.title}".trim(), SearchFilter.SOUNDCLOUD).firstOrNull()
+        }
+        scSeed?.let { soundcloudRelated(it) }.orEmpty()
+    }
+
+    private suspend fun fromSpotify(seed: Track): List<Track> = guarded { spotify.similarTo(seed) }
+
+    private suspend fun guarded(block: suspend () -> List<Track>): List<Track> =
+        runCatching { block() }.getOrElse {
             if (YouTubeLimits.isBotBlock(it)) YouTubeLimits.markBlocked()
             emptyList()
         }
-        curate(seed, raw, avoid, limit)
+
+    /** a1, b1, c1, a2, b2, c2... */
+    private fun interleave(vararg lists: List<Track>): List<Track> {
+        val out = mutableListOf<Track>()
+        val max = lists.maxOfOrNull { it.size } ?: 0
+        for (i in 0 until max) for (l in lists) l.getOrNull(i)?.let { out += it }
+        return out
     }
 
     private suspend fun videoIdFor(seed: Track): String? = when (seed.source) {

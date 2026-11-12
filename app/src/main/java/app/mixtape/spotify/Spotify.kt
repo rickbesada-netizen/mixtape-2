@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Base64
 import app.mixtape.core.model.SourceType
 import app.mixtape.core.model.Track
+import app.mixtape.core.model.display
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -220,6 +222,58 @@ class SpotifyApi(private val auth: SpotifyAuth, private val http: OkHttpClient) 
             page = next?.let { get(it) }
         }
         return info to out
+    }
+
+    /**
+     * Songs like [seed], from Spotify. Spotify switched off its recommendations for new apps
+     * (Nov 2024) and removed artist top tracks (Feb 2026), so this tries recommendations first
+     * (works if your Spotify app has extended access) and otherwise searches Spotify for the
+     * seed artist's genres and the artist's other songs.
+     */
+    suspend fun similarTo(seed: Track): List<Track> {
+        val base: JSONObject? = if (seed.source == SourceType.SPOTIFY) {
+            runCatching { get("https://api.spotify.com/v1/tracks/${seed.sourceId}") }.getOrNull()
+        } else {
+            val shown = seed.display()
+            searchTracks("track:${shown.title} artist:${shown.artist.split(",").first().trim()}", 1).firstOrNull()
+                ?: searchTracks("${shown.artist} ${shown.title}", 1).firstOrNull()
+        }
+        val b = base ?: return emptyList()
+        val spId = b.optString("id").takeIf { it.isNotEmpty() } ?: return emptyList()
+        val artist = b.optJSONArray("artists")?.optJSONObject(0)
+        val artistId = artist?.optString("id")?.takeIf { it.isNotEmpty() }
+        val artistName = artist?.optString("name").orEmpty()
+
+        runCatching {
+            val r = get("https://api.spotify.com/v1/recommendations?limit=30&seed_tracks=$spId")
+            val arr = r.optJSONArray("tracks")
+            buildList { if (arr != null) for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { parseTrack(it) }?.let { add(it) } }
+        }.getOrNull()?.takeIf { it.size >= 5 }?.let { return it }
+
+        val genres = artistId?.let { id ->
+            runCatching { get("https://api.spotify.com/v1/artists/$id").optJSONArray("genres") }.getOrNull()
+        }?.let { g -> (0 until g.length()).mapNotNull { g.optString(it).takeIf { s -> s.isNotBlank() } } }.orEmpty()
+
+        val out = mutableListOf<Track>()
+        for (g in genres.take(3)) {
+            val offset = (0..40).random()
+            out += searchTracks("genre:\"$g\"", 10, offset).mapNotNull { parseTrack(it) }
+        }
+        if (artistName.isNotBlank()) {
+            out += searchTracks("artist:\"$artistName\"", 10).mapNotNull { parseTrack(it) }.take(4)
+        }
+        return out.shuffled().distinctBy { it.key }.filter { it.sourceId != spId }
+    }
+
+    private suspend fun searchTracks(q: String, limit: Int, offset: Int = 0): List<JSONObject> {
+        val url = "https://api.spotify.com/v1/search".toHttpUrl().newBuilder()
+            .addQueryParameter("q", q)
+            .addQueryParameter("type", "track")
+            .addQueryParameter("limit", limit.coerceAtMost(10).toString())
+            .addQueryParameter("offset", offset.toString())
+            .build().toString()
+        val arr = runCatching { get(url).optJSONObject("tracks")?.optJSONArray("items") }.getOrNull() ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
     }
 
     private suspend fun pagedTracks(first: String): List<Track> {
