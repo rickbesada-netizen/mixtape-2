@@ -1,8 +1,5 @@
 package app.mixtape.player
 
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.Player
@@ -20,16 +17,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 
 /** One beeped / muted part of a song, in milliseconds of the song. */
 data class CensorRange(val startMs: Long, val endMs: Long, val auto: Boolean = false)
 
 /** Your own clean edit of a song. */
-data class CensorEdit(val trackKey: String, val ranges: List<CensorRange>, val beep: Boolean)
+data class CensorEdit(val trackKey: String, val ranges: List<CensorRange>, val mode: CensorMode)
 
 /** Keeps everyone's clean edits in memory (they're tiny) so playback can check them instantly. */
 class CensorStore(
@@ -47,20 +42,20 @@ class CensorStore(
 
     fun get(key: String): CensorEdit? = edits.value[key]
 
-    suspend fun save(key: String, ranges: List<CensorRange>, beep: Boolean) {
+    suspend fun save(key: String, ranges: List<CensorRange>, mode: CensorMode) {
         val merged = merge(ranges)
         dao.upsert(
             CensorEntity(
                 trackKey = key,
-                ranges = encode(merged),
-                beep = beep,
+                ranges = encode(merged, mode),
+                beep = mode == CensorMode.BEEP || mode == CensorMode.INSTRUMENTAL_BEEP,
                 updatedAt = System.currentTimeMillis(),
                 deleted = merged.isEmpty(),
             )
         )
     }
 
-    suspend fun delete(key: String) = save(key, emptyList(), true)
+    suspend fun delete(key: String) = save(key, emptyList(), CensorMode.BEEP)
 
     /**
      * Guesses where the bad words are from the song's time-synced lyrics. LRCLIB gives a time per
@@ -93,9 +88,28 @@ class CensorStore(
     }
 
     companion object {
-        fun encode(r: List<CensorRange>) = r.joinToString(",") { "${it.startMs}-${it.endMs}" + if (it.auto) "a" else "" }
+        /**
+         * "start-end,start-end" in ms; "a" marks a spot guessed from lyrics. The two instrumental
+         * modes are stored as a prefix ("@inst;" / "@instbeep;") so older versions and the cloud
+         * table need no new column; bleep vs silence is the separate beep flag.
+         */
+        fun encode(r: List<CensorRange>, mode: CensorMode): String {
+            val body = r.joinToString(",") { "${it.startMs}-${it.endMs}" + if (it.auto) "a" else "" }
+            return when (mode) {
+                CensorMode.INSTRUMENTAL -> "@inst;$body"
+                CensorMode.INSTRUMENTAL_BEEP -> "@instbeep;$body"
+                else -> body
+            }
+        }
 
-        fun decode(s: String): List<CensorRange> = s.split(",").mapNotNull { part ->
+        fun modeOf(ranges: String, beep: Boolean): CensorMode = when {
+            ranges.startsWith("@instbeep;") -> CensorMode.INSTRUMENTAL_BEEP
+            ranges.startsWith("@inst;") -> CensorMode.INSTRUMENTAL
+            beep -> CensorMode.BEEP
+            else -> CensorMode.SILENCE
+        }
+
+        fun decode(raw: String): List<CensorRange> = raw.substringAfter(";", raw).split(",").mapNotNull { part ->
             val auto = part.endsWith("a")
             val p = part.removeSuffix("a").split("-")
             val a = p.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
@@ -116,80 +130,29 @@ class CensorStore(
             return out
         }
 
-        private fun CensorEntity.toEdit() = CensorEdit(trackKey, if (deleted) emptyList() else decode(ranges), beep)
-    }
-}
-
-/** A steady 1 kHz tone, like a TV bleep. */
-class Beeper {
-    private var track: AudioTrack? = null
-    private var playing = false
-
-    private fun build(): AudioTrack {
-        val rate = 44100
-        val samples = rate / 2 // half a second, a whole number of 1 kHz cycles, looped
-        val pcm = ShortArray(samples) { i -> (sin(2 * PI * 1000.0 * i / rate) * 0.25 * Short.MAX_VALUE).toInt().toShort() }
-        val t = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(rate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setTransferMode(AudioTrack.MODE_STATIC)
-            .setBufferSizeInBytes(samples * 2)
-            .build()
-        t.write(pcm, 0, samples)
-        t.setLoopPoints(0, samples, -1)
-        return t
-    }
-
-    fun start() {
-        if (playing) return
-        val t = track ?: runCatching { build() }.getOrNull()?.also { track = it } ?: return
-        runCatching { t.play() }
-        playing = true
-    }
-
-    fun stop() {
-        if (!playing) return
-        runCatching { track?.pause() }
-        playing = false
-    }
-
-    fun release() {
-        stop()
-        runCatching { track?.release() }
-        track = null
+        private fun CensorEntity.toEdit() = CensorEdit(trackKey, if (deleted) emptyList() else decode(ranges), modeOf(ranges, beep))
     }
 }
 
 /**
- * Applies clean edits while a song plays: watches the play position and, inside a marked part,
- * mutes the song and plays the bleep (or just mutes). Only runs its fast check while a song with
- * an edit is playing.
+ * Keeps [CleanEditState] pointed at the clean edits of the song playing now and the one after it.
+ * The editing itself happens on the decoded sound in [CleanAudioSink].
  */
 class CensorEngine(
     private val store: CensorStore,
     private val settings: Settings,
+    private val state: CleanEditState,
     private val player: () -> Player?,
 ) {
     private val handler = Handler(Looper.getMainLooper())
-    private val beeper = Beeper()
-    private var active = false
     private var running = false
+    private var lastKey: String? = null
 
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
-            handler.postDelayed(this, check())
+            update()
+            handler.postDelayed(this, 150)
         }
     }
 
@@ -202,42 +165,21 @@ class CensorEngine(
     fun stop() {
         running = false
         handler.removeCallbacks(tick)
-        release()
-        beeper.release()
     }
 
-    /** @return how long until the next check */
-    private fun check(): Long {
-        val p = player() ?: return 500
+    /** Also called straight away on song changes so the switch isn't late. */
+    fun update() {
+        val p = player() ?: return
         val key = p.currentMediaItem?.mediaId
-        val edit = key?.let { store.get(it) }
-        if (edit == null || !p.isPlaying) {
-            release(p)
-            return 250
+        if (key != lastKey) {
+            lastKey = key
+            state.useNext = false
         }
-        // A small head start so the bleep covers the start of the word; the offset slider in the
-        // editor fixes any remaining lag (Bluetooth headphones are often a bit behind).
-        val pos = p.currentPosition + settings.censorOffsetMs.value
-        val hit = edit.ranges.any { pos >= it.startMs - LEAD_MS && pos < it.endMs + TAIL_MS }
-        if (hit && !active) {
-            active = true
-            p.volume = 0f
-            if (edit.beep) beeper.start()
-        } else if (!hit && active) {
-            release(p)
-        }
-        return 10
-    }
-
-    private fun release(p: Player? = player()) {
-        if (!active) return
-        active = false
-        p?.volume = 1f
-        beeper.stop()
-    }
-
-    private companion object {
-        const val LEAD_MS = 40L
-        const val TAIL_MS = 40L
+        state.current = key?.let { store.get(it) }
+        val nextIndex = p.nextMediaItemIndex
+        state.next = if (nextIndex != androidx.media3.common.C.INDEX_UNSET && nextIndex < p.mediaItemCount) {
+            store.get(p.getMediaItemAt(nextIndex).mediaId)
+        } else null
+        state.offsetMs = settings.censorOffsetMs.value
     }
 }

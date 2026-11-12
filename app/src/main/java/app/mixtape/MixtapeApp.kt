@@ -22,6 +22,7 @@ import app.mixtape.source.CleanConverter
 import app.mixtape.source.HomeFeedRepository
 import app.mixtape.source.RadioEngine
 import app.mixtape.source.LyricsClient
+import app.mixtape.source.MadeForYou
 import app.mixtape.player.CensorStore
 import app.mixtape.source.LinkResolver
 import app.mixtape.source.SoundCloudSource
@@ -91,7 +92,6 @@ class AppContainer(context: Context) {
 
     val cloud = CloudSync(context, http, db, library)
 
-    val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth)
 
     val backup = BackupManager(context, db, library, crypto, downloads)
 
@@ -103,6 +103,13 @@ class AppContainer(context: Context) {
     val pendingLink = MutableStateFlow<String?>(null)
 
     val radio = RadioEngine(sources.youtube, sources.soundcloud, matcher, spotify, spotifyAuth, settings)
+
+    /** Daily Mixes, Discover Weekly, On Repeat... built from what you play. */
+    val madeForYou = MadeForYou(context, library, db.history(), radio, sources.youtube).also { m ->
+        links.madeForYou = { id -> m.detail(id) }
+    }
+
+    val home = HomeFeedRepository(library, db.matches(), spotify, spotifyAuth, madeForYou, http)
 
     val lyrics = LyricsClient(http)
 

@@ -183,8 +183,11 @@ class CloudSync(
 
     // ---------------------------------------------------------------- REST helpers
 
-    private suspend fun rest(method: String, pathAndQuery: String, body: Any? = null, prefer: String? = null): String {
-        val token = accessToken()
+    private suspend fun rest(method: String, pathAndQuery: String, body: Any? = null, prefer: String? = null): String =
+        withContext(Dispatchers.IO) { restBlocking(method, pathAndQuery, body, prefer) }
+
+    private suspend fun restBlocking(method: String, pathAndQuery: String, body: Any?, prefer: String?): String {
+        val token = withContext(Dispatchers.IO) { accessToken() }
         val b = Request.Builder().url("$url/rest/v1/$pathAndQuery")
             .header("apikey", anonKey)
             .header("Authorization", "Bearer $token")
@@ -236,7 +239,17 @@ class CloudSync(
     }
 
     /** Pull from the cloud, merge into this phone, then push this phone's library back up. */
-    suspend fun sync(): String = mutex.withLock {
+    suspend fun sync(): String = withContext(Dispatchers.IO) { syncLocked() }
+
+    /** A readable reason, never "null". */
+    private fun reason(e: Throwable): String = when (e) {
+        is java.net.UnknownHostException -> "No internet connection (or the server address is wrong)"
+        is java.net.SocketTimeoutException -> "The server took too long to answer, try again"
+        is java.net.ConnectException -> "Couldn't reach the server, check your internet"
+        else -> e.message?.takeIf { it.isNotBlank() } ?: (e.javaClass.simpleName.ifBlank { "Unknown error" })
+    }
+
+    private suspend fun syncLocked(): String = mutex.withLock {
         if (_account.value == null) throw IOException("Not logged in")
         _syncing.value = true
         try {
@@ -249,9 +262,11 @@ class CloudSync(
             prefs.edit().putString("status", msg).apply()
             msg
         } catch (e: Exception) {
-            val msg = "Last sync failed: ${e.message}"
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            val msg = "Last sync failed: ${reason(e)}"
             _status.value = msg
-            throw e
+            prefs.edit().putString("status", msg).apply()
+            throw IOException(reason(e), e)
         } finally {
             _syncing.value = false
         }

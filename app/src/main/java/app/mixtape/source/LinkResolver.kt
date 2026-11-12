@@ -40,6 +40,9 @@ class LinkResolver(
 
     fun cached(url: String): CollectionDetail? = cache[url]
 
+    /** Opens Mixtape's own mixes (Daily Mix, Discover Weekly...). Set by the app container. */
+    var madeForYou: (suspend (String) -> CollectionDetail?)? = null
+
     companion object {
         private val URL_REGEX = Regex("https?://[^\\s\"'<>]+")
         private val SPOTIFY_PATH = Regex("/(?:intl-[a-z]{2}(?:-[A-Za-z]{2})?/)?(track|playlist|album)/([A-Za-z0-9]{22})")
@@ -76,6 +79,10 @@ class LinkResolver(
 
     /** Loads a playlist or album URL from search results (or re-opens one from a link). */
     suspend fun loadCollection(url: String): CollectionDetail {
+        if (url.startsWith(MadeForYou.SCHEME)) {
+            return madeForYou?.invoke(url.removePrefix(MadeForYou.SCHEME))
+                ?: throw IOException("This mix isn't ready yet. Play a few songs and check Home again.")
+        }
         cache[url]?.let { return it }
         // YouTube Mixes (list=RD...) look like a song link; open them as the playlist they are.
         val host = url.toHttpUrlOrNull()?.host.orEmpty()

@@ -61,7 +61,10 @@ class PlaylistSync(
      * @param downloadNew download songs that are new since the last check
      * @return null if the playlist can't be refreshed (or the source returned nothing)
      */
-    suspend fun syncPlaylist(p: PlaylistEntity, downloadNew: Boolean): PlaylistSyncResult? {
+    suspend fun syncPlaylist(p: PlaylistEntity, downloadNew: Boolean): PlaylistSyncResult? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { syncPlaylistIo(p, downloadNew) }
+
+    private suspend fun syncPlaylistIo(p: PlaylistEntity, downloadNew: Boolean): PlaylistSyncResult? {
         val ext = p.externalId ?: return null
         val list: List<Track> = when (p.origin) {
             PlaylistOrigin.LINK -> links.refreshCollection(ext).tracks
@@ -94,7 +97,9 @@ class PlaylistSync(
     }
 
     /** Checks every playlist you've downloaded songs from. Returns what was added. */
-    suspend fun syncAll(): List<PlaylistSyncResult> = lock.withLock {
+    suspend fun syncAll(): List<PlaylistSyncResult> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { syncAllIo() }
+
+    private suspend fun syncAllIo(): List<PlaylistSyncResult> = lock.withLock {
         val downloaded = library.playlists().first()
             .filter { it.downloadedCount > 0 && canSync(it.playlist) }
             .map { it.playlist }

@@ -112,6 +112,10 @@ fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit) {
         if (subs.isNotEmpty()) runCatching { container.subscriptions.feed(force = false) }.onSuccess { subFeed = it }
     }
 
+    val topIds = setOf("made-for-you", "spotify-charts")
+    val topSections = state.sections.filter { it.id in topIds && it.kind == FeedKind.COLLECTIONS }
+    val restSections = state.sections.filter { it.id !in topIds }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -121,6 +125,12 @@ fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit) {
                     Icon(Icons.Filled.Refresh, "Refresh")
                 }
             }
+        }
+
+        // Like Spotify: your mixes and the charts first.
+        items(topSections, key = { "top-" + it.id }) { section ->
+            SectionHeader(section.title)
+            CollectionRow(section.collections) { actions.openCollection(it.url) }
         }
 
         item {
@@ -171,7 +181,7 @@ fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit) {
             }
         }
 
-        items(state.sections, key = { it.id }) { section ->
+        items(restSections, key = { it.id }) { section ->
             SectionHeader(section.title)
             when (section.kind) {
                 FeedKind.MUSIC -> MusicRow(section.tracks) { i -> actions.play(section.tracks, i) }
@@ -255,7 +265,23 @@ private fun CollectionRow(items: List<RemoteCollection>, onTap: (RemoteCollectio
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(items, key = { it.url }) { c ->
             Column(Modifier.width(140.dp).clickable { onTap(c) }) {
-                Artwork(c.artworkUrl, 140)
+                if (c.url.startsWith(app.mixtape.source.MadeForYou.SCHEME)) {
+                    // Mixtape's own mixes get a Spotify-style name band over the cover.
+                    Box(contentAlignment = Alignment.BottomStart) {
+                        Artwork(c.artworkUrl, 140)
+                        Text(
+                            c.title,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier
+                                .width(140.dp)
+                                .background(androidx.compose.ui.graphics.Color(0xB3000000))
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                    }
+                } else Artwork(c.artworkUrl, 140)
                 Text(c.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
                 Text(c.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

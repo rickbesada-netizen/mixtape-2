@@ -40,6 +40,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var exoPlayer: ExoPlayer
     private var castPlayer: CastPlayer? = null
     private var censorEngine: CensorEngine? = null
+    private val cleanState = CleanEditState()
     private val container get() = (application as MixtapeApp).container
 
     override fun onCreate() {
@@ -53,7 +54,19 @@ class PlaybackService : MediaSessionService() {
             )
         }
 
-        val player = ExoPlayer.Builder(this)
+        // Clean edits are applied to the decoded sound, just before it's played.
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): androidx.media3.exoplayer.audio.AudioSink? {
+                val base = super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams) ?: return null
+                return CleanAudioSink(base, cleanState)
+            }
+        }
+
+        val player = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -79,7 +92,11 @@ class PlaybackService : MediaSessionService() {
         exoPlayer = player
 
         // Your clean edits: beep / mute the marked parts while songs play on the phone.
-        censorEngine = CensorEngine(container.censor, container.settings) { exoPlayer }.also { it.start() }
+        censorEngine = CensorEngine(container.censor, container.settings, cleanState) { exoPlayer }.also { it.start() }
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { censorEngine?.update() }
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { censorEngine?.update() }
+        })
 
         // Chromecast: when a Cast session starts, the queue moves to the TV and the phone becomes
         // the remote; when it ends, playback comes back to the phone where it left off.

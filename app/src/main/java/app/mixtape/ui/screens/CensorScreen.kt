@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -64,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mixtape.core.model.Track
 import app.mixtape.core.model.display
+import app.mixtape.player.CensorMode
 import app.mixtape.player.CensorRange
 import app.mixtape.player.CensorStore
 import app.mixtape.ui.components.Artwork
@@ -94,7 +97,7 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
     val track by produceState<Track?>(null, trackKey) { value = container.library.getTrack(trackKey) }
     val saved = remember(trackKey) { container.censor.get(trackKey) }
     var ranges by remember(trackKey) { mutableStateOf(saved?.ranges ?: emptyList()) }
-    var beep by remember(trackKey) { mutableStateOf(saved?.beep ?: true) }
+    var mode by remember(trackKey) { mutableStateOf(saved?.mode ?: CensorMode.INSTRUMENTAL) }
     var holding by remember { mutableStateOf(false) }
     var holdStart by remember { mutableLongStateOf(0L) }
     var autoBusy by remember { mutableStateOf(false) }
@@ -108,11 +111,11 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
         }
     }
 
-    fun persist(newRanges: List<CensorRange>, newBeep: Boolean = beep) {
+    fun persist(newRanges: List<CensorRange>, newMode: CensorMode = mode) {
         val merged = CensorStore.merge(newRanges)
         ranges = merged
-        beep = newBeep
-        scope.launch { container.censor.save(trackKey, merged, newBeep) }
+        mode = newMode
+        scope.launch { container.censor.save(trackKey, merged, newMode) }
     }
 
     val isThis = state.nowPlaying?.key == trackKey
@@ -140,7 +143,7 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
                 }
                 Text(
                     "Play the song and hold the button below while a word you don't want plays. That part gets " +
-                        "bleeped every time this song plays in Mixtape, streamed or downloaded. Tap it once for a " +
+                        "cleaned every time this song plays in Mixtape, streamed or downloaded. Tap it once for a " +
                         "quick mark around that moment.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -235,11 +238,28 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
                     }
                 }
 
-                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sound:", style = MaterialTheme.typography.labelLarge)
-                    FilterChip(selected = beep, onClick = { persist(ranges, true) }, label = { Text("Bleep") })
-                    FilterChip(selected = !beep, onClick = { persist(ranges, false) }, label = { Text("Silence") })
+                Text("What plays in the marked parts", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CensorMode.entries.forEach { m ->
+                        FilterChip(selected = mode == m, onClick = { persist(ranges, m) }, label = { Text(m.label) })
+                    }
                 }
+                Text(
+                    when (mode) {
+                        CensorMode.INSTRUMENTAL ->
+                            "The vocals drop out and the beat keeps going, like the instrumental. Works on most studio songs; " +
+                                "if a song was recorded in mono only the bass is left, so use Bleep for that one."
+                        CensorMode.INSTRUMENTAL_BEEP -> "The beat keeps going with a soft bleep over it, like a radio edit."
+                        CensorMode.BEEP -> "The whole sound is replaced by a bleep, like on TV."
+                        CensorMode.SILENCE -> "The whole sound goes quiet for that moment."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
 
                 OutlinedButton(
                     enabled = !autoBusy,
@@ -272,7 +292,7 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
                 }
 
                 Text(
-                    "Bleep timing: " + when {
+                    "Timing: " + when {
                         offset > 0 -> "${offset} ms earlier"
                         offset < 0 -> "${-offset} ms later"
                         else -> "normal"
@@ -281,7 +301,7 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
                     modifier = Modifier.padding(top = 16.dp),
                 )
                 Text(
-                    "Bleeps landing late (common with Bluetooth headphones)? Slide right.",
+                    "If all your marks are a little late, slide right to move them all earlier.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

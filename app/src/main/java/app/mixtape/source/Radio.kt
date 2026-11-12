@@ -38,8 +38,13 @@ class RadioEngine(
     /**
      * @param avoid songs already in the queue or played recently (by key and by title)
      */
-    suspend fun similarTo(seed: Track, avoid: List<Track>, limit: Int = 25): List<Track> = withContext(Dispatchers.IO) {
-        val source = settings.radioSource.value
+    suspend fun similarTo(
+        seed: Track,
+        avoid: List<Track>,
+        limit: Int = 25,
+        sourceOverride: RadioSource? = null,
+    ): List<Track> = withContext(Dispatchers.IO) {
+        val source = sourceOverride ?: settings.radioSource.value
         val spotifyOn = spotifyAuth.loggedIn.value
         val raw = when (source) {
             RadioSource.YOUTUBE_MUSIC -> fromYouTube(seed)

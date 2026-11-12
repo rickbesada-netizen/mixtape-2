@@ -333,6 +333,11 @@ interface MatchDao {
     suspend fun clearAutomatic()
 }
 
+data class TrackPlays(
+    @Embedded val track: TrackEntity,
+    val plays: Int,
+)
+
 @Dao
 interface HistoryDao {
     @Insert
@@ -344,6 +349,17 @@ interface HistoryDao {
             "ON h.trackKey = t.trackKey ORDER BY h.lastPlayed DESC LIMIT 100"
     )
     fun recent(): Flow<List<TrackEntity>>
+
+    /** Songs with how often they were played between [from] and [to], most played first. */
+    @Query(
+        "SELECT t.*, h.plays AS plays FROM tracks t INNER JOIN " +
+            "(SELECT trackKey, COUNT(*) AS plays FROM history WHERE playedAt >= :from AND playedAt < :to GROUP BY trackKey) h " +
+            "ON h.trackKey = t.trackKey ORDER BY h.plays DESC LIMIT :limit"
+    )
+    suspend fun playCounts(from: Long, to: Long, limit: Int): List<TrackPlays>
+
+    @Query("SELECT DISTINCT trackKey FROM history")
+    suspend fun allPlayedKeys(): List<String>
 
     @Query("DELETE FROM history")
     suspend fun clear()
