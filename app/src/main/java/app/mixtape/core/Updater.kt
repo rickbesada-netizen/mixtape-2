@@ -100,7 +100,7 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
             _state.value = UpdateState.ReadyToInstall(info, file)
             install(file)
         } catch (e: Exception) {
-            _state.value = UpdateState.Failed(info, e.message ?: "Download failed")
+            _state.value = UpdateState.Failed(info, e.message?.takeIf { it.isNotBlank() } ?: ("Download failed: " + e.javaClass.simpleName))
         }
     }
 

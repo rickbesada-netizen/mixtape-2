@@ -51,6 +51,36 @@ fun SettingsScreen() {
     var updateStatus by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // Updates, at the top so they're easy to find.
+        ListItem(
+            headlineContent = { Text("Mixtape ${container.updater.currentVersion}") },
+            supportingContent = { Text(updateStatus ?: "Tap to check for updates. Updates install over this version and keep your downloads.") },
+            modifier = Modifier.clickable {
+                updateStatus = "Checking..."
+                scope.launch {
+                    updateStatus = runCatching { container.updater.check(force = true) }.fold(
+                        { if (it == null) "You're on the latest version" else "Version ${it.versionName} is available" },
+                        { e -> "Couldn't check: " + (e.message?.takeIf { m -> m.isNotBlank() } ?: e.javaClass.simpleName) },
+                    )
+                }
+            },
+        )
+        ListItem(
+            headlineContent = { Text("Download the latest version in your browser") },
+            supportingContent = { Text("Another way to update: open the file and tap Update. Your downloads stay.") },
+            modifier = Modifier.clickable {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/rickbesada-netizen/mixtape-2/releases/download/latest/Mixtape.apk"),
+                        )
+                    )
+                }
+            },
+        )
+        HorizontalDivider()
+
         AccountSection()
         HorizontalDivider(Modifier.padding(top = 8.dp))
         BackupSection()
@@ -109,17 +139,6 @@ fun SettingsScreen() {
         )
         HorizontalDivider()
 
-        ListItem(
-            headlineContent = { Text("Mixtape ${container.updater.currentVersion}") },
-            supportingContent = { Text(updateStatus ?: "Tap to check for updates. Updates install over this version and keep your downloads.") },
-            modifier = Modifier.clickable {
-                updateStatus = "Checking..."
-                scope.launch {
-                    updateStatus = runCatching { container.updater.check(force = true) }
-                        .fold({ if (it == null) "You're on the latest version" else "Version ${it.versionName} is available" }, { it.message })
-                }
-            },
-        )
         HorizontalDivider()
         ListItem(
             headlineContent = { Text("Autoplay similar songs") },
