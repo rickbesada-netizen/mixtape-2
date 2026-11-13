@@ -104,9 +104,24 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
 
     // Smooth play position while this screen is open.
     var pos by remember { mutableLongStateOf(0L) }
+    var engine by remember { mutableStateOf("") }
+    var engineError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         while (true) {
             pos = player.positionNow()
+            // What the sound engine is doing, so you can see the edit being applied.
+            val d = app.mixtape.player.CleanDiagnostics
+            val now = System.currentTimeMillis()
+            engineError = d.lastError
+            engine = when {
+                !player.state.value.isPlaying -> "Sound engine: paused"
+                now - d.lastSeenAt > 2000 -> "Sound engine: waiting for audio"
+                d.editKey != trackKey && ranges.isNotEmpty() -> "Sound engine: hasn't picked up this edit yet"
+                kotlin.math.abs(d.lastMediaMs - pos) > 5000 ->
+                    "Sound engine: at ${fmt(d.lastMediaMs)} but the song is at ${fmt(pos)} (timing problem, please tell Claude)"
+                now - d.lastAppliedAt < 600 -> "Sound engine: cleaning now"
+                else -> "Sound engine: listening (${ranges.size} marked parts)"
+            }
             delay(50)
         }
     }
@@ -185,6 +200,12 @@ fun CensorScreen(trackKey: String, onBack: () -> Unit) {
                             drawRect(head, topLeft = Offset(x - 2f, 0f), size = Size(4f, size.height))
                         }
                     }
+                    Text(
+                        engineError?.let { "Sound engine error: $it" } ?: engine,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (engineError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                         Text(fmt(pos), style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.weight(1f))

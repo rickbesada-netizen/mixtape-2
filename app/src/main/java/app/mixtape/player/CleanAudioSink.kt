@@ -13,6 +13,15 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/** What the sound engine last did, shown in the clean-edit editor so problems are visible. */
+object CleanDiagnostics {
+    @Volatile var lastMediaMs = -1L
+    @Volatile var lastSeenAt = 0L
+    @Volatile var lastAppliedAt = 0L
+    @Volatile var editKey: String? = null
+    @Volatile var lastError: String? = null
+}
+
 /** How a marked part of a song is cleaned. */
 enum class CensorMode(val label: String) {
     BEEP("Bleep"),
@@ -85,25 +94,83 @@ class CleanAudioSink(sink: AudioSink, private val state: CleanEditState) : Forwa
     override fun flush() {
         flushedSinceStream = true
         state.useNext = false
+        pending = null
         lastBuffer = null
         lastPts = Long.MIN_VALUE
         resetFilter()
         super.flush()
     }
 
+    /** What we handed the real output for the current decoder buffer (a writable copy, or the original). */
+    private var pending: ByteBuffer? = null
+    private val pool = arrayOfNulls<ByteBuffer>(2)
+    private var poolIndex = 0
+
     override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
-        // The same buffer comes back until the output has room for it; only edit it once.
+        // The same buffer comes back until the output has room for it; only prepare it once, and
+        // keep handing over the same (copied) buffer until it's used up.
         if (buffer !== lastBuffer || presentationTimeUs != lastPts) {
             lastBuffer = buffer
             lastPts = presentationTimeUs
             flushedSinceStream = false
-            runCatching { process(buffer, presentationTimeUs - offsetUs) }
+            pending = try {
+                prepare(buffer, presentationTimeUs - offsetUs)
+            } catch (e: Throwable) {
+                CleanDiagnostics.lastError = e.toString()
+                null
+            }
         }
-        return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        val toSink = pending ?: buffer
+        val done = super.handleBuffer(toSink, presentationTimeUs, encodedAccessUnitCount)
+        if (done && toSink !== buffer) {
+            // We played the edited copy; mark the decoder's original as used too.
+            buffer.position(buffer.limit())
+            pending = null
+        }
+        return done
     }
 
-    private fun process(buffer: ByteBuffer, mediaTimeUs: Long) {
-        val edit = state.active() ?: return
+    /**
+     * The decoder's buffers are read-only, so when this buffer overlaps a marked part we copy it
+     * into our own memory, edit the copy and play that. Returns null when nothing needs changing.
+     */
+    private fun prepare(buffer: ByteBuffer, mediaTimeUs: Long): ByteBuffer? {
+        CleanDiagnostics.lastMediaMs = mediaTimeUs / 1000
+        CleanDiagnostics.lastSeenAt = System.currentTimeMillis()
+        val edit = state.active() ?: return null
+        CleanDiagnostics.editKey = edit.trackKey
+        if (!overlaps(edit, buffer.remaining(), mediaTimeUs)) return null
+
+        val size = buffer.remaining()
+        var work = pool[poolIndex]
+        if (work == null || work.capacity() < size) {
+            work = ByteBuffer.allocateDirect(maxOf(size, 64 * 1024)).order(ByteOrder.nativeOrder())
+            pool[poolIndex] = work
+        }
+        poolIndex = (poolIndex + 1) % pool.size
+        work!!.clear()
+        work.put(buffer.duplicate())
+        work.flip()
+        process(work, mediaTimeUs, edit)
+        CleanDiagnostics.lastAppliedAt = System.currentTimeMillis()
+        CleanDiagnostics.lastError = null
+        return work
+    }
+
+    private fun overlaps(edit: CensorEdit, bytes: Int, mediaTimeUs: Long): Boolean {
+        if (edit.ranges.isEmpty() || rate <= 0 || channels <= 0) return false
+        val bytesPerSample = when (encoding) {
+            C.ENCODING_PCM_16BIT -> 2
+            C.ENCODING_PCM_FLOAT -> 4
+            else -> { CleanDiagnostics.lastError = "Unsupported audio format ($encoding)"; return false }
+        }
+        val frames = bytes / (bytesPerSample * channels)
+        val startMs = mediaTimeUs / 1000.0 + state.offsetMs
+        val endMs = startMs + frames * 1000.0 / rate
+        return edit.ranges.any { it.startMs - LEAD_MS - FADE_MS < endMs && it.endMs + TAIL_MS + FADE_MS > startMs }
+    }
+
+    private fun process(buffer: ByteBuffer, mediaTimeUs: Long, edit: CensorEdit) {
         if (edit.ranges.isEmpty() || rate <= 0 || channels <= 0) return
         val bytesPerSample = when (encoding) {
             C.ENCODING_PCM_16BIT -> 2
