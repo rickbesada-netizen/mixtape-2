@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -177,6 +178,14 @@ fun SubscriptionsScreen(onBack: () -> Unit, openChannel: (String) -> Unit) {
     }
 }
 
+private enum class ChannelTab(val label: String, val filter: String) {
+    VIDEOS("Videos", org.schabi.newpipe.extractor.channel.tabs.ChannelTabs.VIDEOS),
+    SHORTS("Shorts", org.schabi.newpipe.extractor.channel.tabs.ChannelTabs.SHORTS),
+    LIVE("Live", org.schabi.newpipe.extractor.channel.tabs.ChannelTabs.LIVESTREAMS),
+    PLAYLISTS("Playlists", org.schabi.newpipe.extractor.channel.tabs.ChannelTabs.PLAYLISTS),
+}
+
+/** A channel: every upload page by page (not just the latest 15), plus shorts, lives and playlists. */
 @Composable
 fun ChannelScreen(channelId: String, onBack: () -> Unit) {
     val container = LocalContainer.current
@@ -185,18 +194,54 @@ fun ChannelScreen(channelId: String, onBack: () -> Unit) {
     val repo = container.subscriptions
     val idsFlow = remember { repo.subscribedIds() }
     val subscribed by idsFlow.collectAsStateWithLifecycle(emptySet())
+    val history by container.videoLibrary.history.collectAsStateWithLifecycle()
     var channel by remember { mutableStateOf<Channel?>(null) }
-    var videos by remember { mutableStateOf<List<FeedVideo>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var tab by remember { mutableStateOf(ChannelTab.VIDEOS) }
+    var items by remember(tab) { mutableStateOf<List<app.mixtape.source.YtItem>>(emptyList()) }
+    var pager by remember(tab) { mutableStateOf<app.mixtape.source.Pager<app.mixtape.source.YtItem>?>(null) }
+    var loading by remember(tab) { mutableStateOf(false) }
+    var error by remember(tab) { mutableStateOf<String?>(null) }
+
+    fun loadMore() {
+        val p = pager ?: return
+        if (p.done || loading) return
+        loading = true
+        scope.launch {
+            runCatching { p.load() }
+                .onSuccess { more -> items = (items + more).distinctBy { it.toString() } }
+                .onFailure { e ->
+                    if (items.isEmpty() && tab == ChannelTab.VIDEOS) {
+                        // Fall back to the channel's feed (latest uploads) if the full list won't load.
+                        runCatching { repo.channelVideos(channelId) }.onSuccess { feed ->
+                            items = feed.map { f ->
+                                app.mixtape.source.YtItem.Video(
+                                    app.mixtape.source.VideoItem(
+                                        f.track.sourceId, f.track.title, f.channelName, thumbnail = f.track.artworkUrl,
+                                        ago = if (f.publishedAt > 0) DateUtils.getRelativeTimeSpanString(f.publishedAt).toString() else "",
+                                    )
+                                )
+                            }
+                        }.onFailure { error = e.message ?: "Couldn't load" }
+                    } else error = e.message ?: "Couldn't load"
+                }
+            loading = false
+        }
+    }
 
     LaunchedEffect(channelId) {
-        runCatching { repo.channelVideos(channelId) }.onSuccess { videos = it }.onFailure { error = it.message }
-        loading = false
         runCatching { repo.channelInfo("https://www.youtube.com/channel/$channelId") }.onSuccess { channel = it }
     }
-    val name = channel?.name ?: videos.firstOrNull()?.channelName ?: ""
+    LaunchedEffect(channelId, tab) {
+        pager = container.youtubeWatch.channelTab(channelId, tab.filter)
+        loadMore()
+    }
+    val name = channel?.name ?: items.filterIsInstance<app.mixtape.source.YtItem.Video>().firstOrNull()?.v?.channel ?: ""
     val isSubbed = channelId in subscribed
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(listState, tab) {
+        androidx.compose.runtime.snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { last -> if (last >= listState.layoutInfo.totalItemsCount - 4) loadMore() }
+    }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -204,7 +249,7 @@ fun ChannelScreen(channelId: String, onBack: () -> Unit) {
             title = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
             item {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     ChannelAvatar(channel?.avatarUrl, 64)
@@ -223,17 +268,47 @@ fun ChannelScreen(channelId: String, onBack: () -> Unit) {
                         }, enabled = name.isNotBlank()) { Text("Subscribe") }
                     }
                 }
-                if (videos.isNotEmpty()) {
-                    FilledTonalButton(
-                        onClick = { actions.play(videos.map { it.track }, 0) },
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    ) { Icon(Icons.Filled.Headphones, null, Modifier.size(18.dp)); Text("  Listen to latest uploads") }
+                Row(
+                    Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ChannelTab.entries.forEach { t ->
+                        androidx.compose.material3.FilterChip(selected = tab == t, onClick = { tab = t }, label = { Text(t.label) })
+                    }
+                }
+                val vids = items.filterIsInstance<app.mixtape.source.YtItem.Video>().map { it.v }
+                if (vids.isNotEmpty()) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = {
+                            app.mixtape.source.VideoQueue.set(name, vids)
+                            actions.watchVideo(vids.first().toTrack())
+                        }) { Text("Watch all") }
+                        FilledTonalButton(onClick = { actions.play(vids.map { it.toTrack() }, 0) }) {
+                            Icon(Icons.Filled.Headphones, null, Modifier.size(18.dp)); Text("  Listen")
+                        }
+                    }
                 }
             }
-            if (loading) item { Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-            error?.let { item { Text("Couldn't load this channel: $it", modifier = Modifier.padding(16.dp)) } }
-            item { Spacer(Modifier.size(8.dp)) }
-            items(videos, key = { it.track.key }) { v -> FeedVideoItem(v, onOpen = { actions.watchVideo(v.track) }, onChannel = null) }
+            error?.let { item { Text("Couldn't load: $it", modifier = Modifier.padding(16.dp)) } }
+            items(items, key = { it.toString() }) { item ->
+                when (item) {
+                    is app.mixtape.source.YtItem.Video -> app.mixtape.ui.components.VideoRowItem(
+                        item.v,
+                        history.firstOrNull { it.video.id == item.v.id }?.progress ?: 0f,
+                        onOpen = { actions.watchVideo(item.v.toTrack()) },
+                    )
+                    is app.mixtape.source.YtItem.PlaylistHit -> app.mixtape.ui.components.VideoRowItem(
+                        app.mixtape.source.VideoItem("playlist", item.p.title, item.p.subtitle, thumbnail = item.p.artworkUrl),
+                        0f,
+                        onOpen = { actions.openCollection(item.p.url) },
+                    )
+                    is app.mixtape.source.YtItem.ChannelHit -> Unit
+                }
+            }
+            if (loading) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            if (!loading && items.isEmpty() && error == null) {
+                item { Text("Nothing here", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
         }
     }
 }

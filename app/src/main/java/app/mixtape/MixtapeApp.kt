@@ -92,6 +92,12 @@ class AppContainer(context: Context) {
 
     val deezer = app.mixtape.source.DeezerApi(http)
 
+    /** The YouTube side: feeds, search, channels, comments, SponsorBlock, captions. */
+    val youtubeWatch = app.mixtape.source.YouTubeWatch(http)
+
+    /** Watch history (with resume positions) and Watch later. */
+    val videoLibrary = app.mixtape.data.VideoLibrary(context, library)
+
     /** In-app updates from the GitHub release. */
     val updater = app.mixtape.core.Updater(context, http)
 
@@ -101,7 +107,7 @@ class AppContainer(context: Context) {
     val cloud = CloudSync(context, http, db, library)
 
 
-    val backup = BackupManager(context, db, library, crypto, downloads)
+    val backup = BackupManager(context, db, library, crypto, downloads).also { it.videoHistory = videoLibrary }
 
     val subscriptions = SubscriptionRepository(context, db.subscriptions(), http)
 

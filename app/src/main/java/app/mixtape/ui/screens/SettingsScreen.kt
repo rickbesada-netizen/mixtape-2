@@ -44,6 +44,9 @@ fun SettingsScreen() {
     val hiResMp4 by container.settings.hiResAsMp4.collectAsStateWithLifecycle()
     val autoplay by container.settings.autoplay.collectAsStateWithLifecycle()
     val radioSource by container.settings.radioSource.collectAsStateWithLifecycle()
+    val videoAutoplay by container.settings.videoAutoplay.collectAsStateWithLifecycle()
+    val backgroundPlay by container.settings.videoBackgroundPlay.collectAsStateWithLifecycle()
+    val sponsorCats by container.settings.sponsorCategories.collectAsStateWithLifecycle()
     val autoSync by container.settings.autoSyncPlaylists.collectAsStateWithLifecycle()
     val savedWords by container.settings.cleanWords.collectAsStateWithLifecycle()
     var words by remember { mutableStateOf(savedWords) }
@@ -139,6 +142,33 @@ fun SettingsScreen() {
         )
         HorizontalDivider()
 
+        HorizontalDivider()
+        Text("Videos", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        ListItem(
+            headlineContent = { Text("Autoplay next video") },
+            supportingContent = { Text("When a video ends, play the next one in Up next") },
+            trailingContent = { Switch(checked = videoAutoplay, onCheckedChange = { container.settings.setVideoAutoplay(it) }) },
+        )
+        ListItem(
+            headlineContent = { Text("Background play") },
+            supportingContent = { Text("Keep a video's sound going when you leave the app or lock your phone") },
+            trailingContent = { Switch(checked = backgroundPlay, onCheckedChange = { container.settings.setVideoBackgroundPlay(it) }) },
+        )
+        Text(
+            "Skip automatically (SponsorBlock)",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+        )
+        listOf(
+            "sponsor" to "Sponsors", "selfpromo" to "Self-promotion", "interaction" to "Like / subscribe reminders",
+            "intro" to "Intros", "outro" to "End cards and credits", "preview" to "Previews and recaps",
+            "filler" to "Off-topic filler", "music_offtopic" to "Non-music parts of music videos",
+        ).forEach { (cat, label) ->
+            ListItem(
+                headlineContent = { Text(label) },
+                trailingContent = { Switch(checked = cat in sponsorCats, onCheckedChange = { container.settings.setSponsorCategory(cat, it) }) },
+            )
+        }
         HorizontalDivider()
         ListItem(
             headlineContent = { Text("Autoplay similar songs") },

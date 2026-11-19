@@ -69,6 +69,9 @@ class BackupManager(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(BackupState())
+
+    /** Watch history (set by the app container). */
+    var videoHistory: VideoLibrary? = null
     val state: StateFlow<BackupState> = _state.asStateFlow()
 
     fun clearMessage() {
@@ -164,6 +167,7 @@ class BackupManager(
             .put("matches", matchesJson).put("downloads", downloadsJson)
             .put("subscriptions", subsJson)
             .put("cleanEdits", censorJson)
+            .put("videoHistory", runCatching { JSONArray(videoHistory?.exportJson() ?: "[]") }.getOrDefault(JSONArray()))
         return manifest to done
     }
 
@@ -374,6 +378,8 @@ class BackupManager(
                 )
             )
         }
+
+        m.optJSONArray("videoHistory")?.takeIf { it.length() > 0 }?.let { videoHistory?.importJson(it.toString()) }
 
         val cj = m.optJSONArray("cleanEdits") ?: JSONArray()
         for (i in 0 until cj.length()) {

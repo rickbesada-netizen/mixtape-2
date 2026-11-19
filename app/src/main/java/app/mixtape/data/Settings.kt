@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+private val DEFAULT_SPONSOR = setOf("sponsor", "selfpromo", "interaction")
+
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -67,6 +69,32 @@ class Settings(context: Context) {
         prefs.edit().putString("radio_source", v.name).apply()
         _radioSource.value = v
     }
+
+    // ---------------------------------------------------------------- videos
+
+    private val _videoAutoplay = MutableStateFlow(prefs.getBoolean("video_autoplay", true))
+    /** Play the next video when one ends, like YouTube. */
+    val videoAutoplay: StateFlow<Boolean> = _videoAutoplay.asStateFlow()
+    fun setVideoAutoplay(v: Boolean) { prefs.edit().putBoolean("video_autoplay", v).apply(); _videoAutoplay.value = v }
+
+    private val _backgroundPlay = MutableStateFlow(prefs.getBoolean("video_background", true))
+    /** Keep a video's sound playing when you leave the app or lock the phone. */
+    val videoBackgroundPlay: StateFlow<Boolean> = _backgroundPlay.asStateFlow()
+    fun setVideoBackgroundPlay(v: Boolean) { prefs.edit().putBoolean("video_background", v).apply(); _backgroundPlay.value = v }
+
+    private val _sponsor = MutableStateFlow(prefs.getStringSet("sponsorblock", DEFAULT_SPONSOR)?.toSet() ?: DEFAULT_SPONSOR)
+    /** SponsorBlock categories skipped automatically. */
+    val sponsorCategories: StateFlow<Set<String>> = _sponsor.asStateFlow()
+    fun setSponsorCategory(cat: String, on: Boolean) {
+        val next = if (on) _sponsor.value + cat else _sponsor.value - cat
+        prefs.edit().putStringSet("sponsorblock", next).apply()
+        _sponsor.value = next
+    }
+
+    private val _captions = MutableStateFlow(prefs.getString("captions_lang", "") ?: "")
+    /** Caption language to turn on automatically ("" = off). */
+    val captionsLanguage: StateFlow<String> = _captions.asStateFlow()
+    fun setCaptionsLanguage(v: String) { prefs.edit().putString("captions_lang", v).apply(); _captions.value = v }
 
     var lastPlaylistSyncAt: Long
         get() = prefs.getLong("last_playlist_sync", 0L)

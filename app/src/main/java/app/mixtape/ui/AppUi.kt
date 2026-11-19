@@ -60,6 +60,8 @@ import app.mixtape.ui.components.TrackActions
 import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CleanProgressDialog
 import app.mixtape.ui.screens.BrowseScreen
+import app.mixtape.ui.screens.VideosScreen
+import androidx.compose.material.icons.filled.OndemandVideo
 import app.mixtape.ui.screens.UpdateDialogs
 import app.mixtape.ui.screens.BrowseCategoryScreen
 import app.mixtape.ui.screens.CensorScreen
@@ -86,6 +88,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val tabs = listOf(
     Tab("home", "Home", Icons.Filled.Home),
+    Tab("videos", "Videos", Icons.Filled.OndemandVideo),
     Tab("search", "Search", Icons.Filled.Search),
     Tab("library", "Library", Icons.Filled.LibraryMusic),
     Tab("downloads", "Downloads", Icons.Filled.Download),
@@ -259,6 +262,13 @@ fun MixtapeAppUi(container: AppContainer) {
                         openBrowse = { nav.navigate("browse") },
                     )
                 }
+                composable("videos") {
+                    VideosScreen(
+                        openVideo = { nav.navigate("video/" + URLEncoder.encode(it, "UTF-8")) },
+                        openChannel = { nav.navigate("channel/$it") },
+                        openSubscriptions = { nav.navigate("subs") },
+                    )
+                }
                 composable("browse") {
                     BrowseScreen(
                         onBack = { nav.popBackStack() },
@@ -338,6 +348,12 @@ fun MixtapeAppUi(container: AppContainer) {
                         videoId = java.net.URLDecoder.decode(entry.arguments?.getString("id") ?: "", "UTF-8"),
                         onBack = { nav.popBackStack() },
                         openChannel = { nav.navigate("channel/$it") },
+                        // Next video replaces this one, so Back goes to where you came from.
+                        openVideo = { id ->
+                            nav.navigate("video/" + URLEncoder.encode(id, "UTF-8")) {
+                                popUpTo("video/{id}") { inclusive = true }
+                            }
+                        },
                     )
                 }
                 composable("censor/{key}") { entry ->

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -183,6 +184,17 @@ fun CollectionScreen(url: String, onBack: () -> Unit, openSavedPlaylist: (Long) 
                             FilledTonalButton(onClick = { actions.makeClean(detail.info.title, detail.tracks) }) {
                                 Icon(Icons.Filled.CleaningServices, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
                                 Text("Clean version")
+                            }
+                            if (detail.tracks.isNotEmpty() && detail.tracks.all { it.source == app.mixtape.core.model.SourceType.YOUTUBE }) {
+                                // A YouTube playlist: watch it as videos, one after another.
+                                FilledTonalButton(onClick = {
+                                    val vids = detail.tracks.map { app.mixtape.source.VideoItem.fromTrack(it) }
+                                    app.mixtape.source.VideoQueue.set(detail.info.title, vids)
+                                    actions.watchVideo(detail.tracks.first())
+                                }) {
+                                    Icon(Icons.Filled.OndemandVideo, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                                    Text("Watch as videos")
+                                }
                             }
                         }
                     }

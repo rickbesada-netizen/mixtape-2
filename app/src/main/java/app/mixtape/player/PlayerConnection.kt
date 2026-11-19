@@ -271,14 +271,14 @@ class PlayerConnection(
         refresh()
     }
 
-    fun playTracks(tracks: List<Track>, startIndex: Int = 0, shuffle: Boolean = false) {
+    fun playTracks(tracks: List<Track>, startIndex: Int = 0, shuffle: Boolean = false, startPositionMs: Long = 0) {
         if (tracks.isEmpty()) return
         radioJob?.cancel()
         radioSeedKey = null
         radioKeys.clear()
         withController { c ->
             c.shuffleModeEnabled = shuffle
-            c.setMediaItems(tracks.map(PlaybackService::controllerItem), startIndex.coerceIn(tracks.indices), 0)
+            c.setMediaItems(tracks.map(PlaybackService::controllerItem), startIndex.coerceIn(tracks.indices), startPositionMs.coerceAtLeast(0))
             c.prepare()
             c.play()
         }
