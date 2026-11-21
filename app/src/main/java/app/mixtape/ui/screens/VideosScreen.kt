@@ -49,6 +49,7 @@ import app.mixtape.ui.components.LocalContainer
 import app.mixtape.ui.components.LocalTrackActions
 import app.mixtape.ui.components.VideoCard
 import app.mixtape.ui.components.VideoRowItem
+import app.mixtape.ui.components.SmartSearch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -74,7 +75,12 @@ private object VideosCache {
 
 /** The YouTube side of Mixtape: no ads, with subscriptions, trending, search and your history. */
 @Composable
-fun VideosScreen(openVideo: (String) -> Unit, openChannel: (String) -> Unit, openSubscriptions: () -> Unit) {
+fun VideosScreen(
+    openVideo: (String) -> Unit,
+    openChannel: (String) -> Unit,
+    openSubscriptions: () -> Unit,
+    openShorts: () -> Unit = {},
+) {
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val scope = rememberCoroutineScope()
@@ -152,31 +158,28 @@ fun VideosScreen(openVideo: (String) -> Unit, openChannel: (String) -> Unit, ope
             .collect { last -> if (last >= listState.layoutInfo.totalItemsCount - 4) loadMore() }
     }
 
+    SmartSearch(
+        box = "videos",
+        query = query,
+        onQueryChange = { query = it },
+        onSubmit = { q ->
+            val pastedId = VideoItem.idFrom(q)
+            if (pastedId != null) {
+                openVideo(pastedId) // a pasted YouTube link opens straight away
+            } else {
+                VideosCache.lists.remove("search:${kind.name}:$q")
+                searching = q
+            }
+        },
+        placeholder = "Search YouTube",
+    ) {
     Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            singleLine = true,
-            placeholder = { Text("Search YouTube") },
-            leadingIcon = { Icon(Icons.Filled.Search, null) },
-            trailingIcon = {
-                if (searching != null || query.isNotEmpty()) {
-                    IconButton(onClick = { query = ""; searching = null }) { Icon(Icons.Filled.Close, "Clear") }
-                }
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = {
-                val q = query.trim()
-                val pastedId = VideoItem.idFrom(q)
-                if (pastedId != null) {
-                    openVideo(pastedId) // a pasted YouTube link opens straight away
-                } else if (q.isNotEmpty()) {
-                    VideosCache.lists.remove("search:${kind.name}:$q")
-                    searching = q
-                }
-            }),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        )
+        if (searching != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Results for \"$searching\"", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                TextButton(onClick = { searching = null; query = "" }) { Text("Back to feed") }
+            }
+        }
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -188,6 +191,10 @@ fun VideosScreen(openVideo: (String) -> Unit, openChannel: (String) -> Unit, ope
             } else {
                 VideoTab.entries.forEach { t ->
                     FilterChip(selected = tab == t, onClick = { tab = t }, label = { Text(t.label) })
+                    if (t == VideoTab.FOR_YOU) {
+                        // Shorts open full screen, swipe up for the next one.
+                        FilterChip(selected = false, onClick = openShorts, label = { Text("Shorts") })
+                    }
                 }
             }
         }
@@ -284,6 +291,7 @@ fun VideosScreen(openVideo: (String) -> Unit, openChannel: (String) -> Unit, ope
             }
         }
     }
+}
 }
 
 private fun itemKey(i: YtItem): String = when (i) {

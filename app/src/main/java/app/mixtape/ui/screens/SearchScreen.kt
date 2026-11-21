@@ -1,5 +1,10 @@
 package app.mixtape.ui.screens
 
+import kotlinx.coroutines.async
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.width
+import app.mixtape.ui.components.TrackRow
+import app.mixtape.ui.components.SmartSearch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -84,17 +89,60 @@ data class SearchUiState(
     val channels: List<app.mixtape.source.Channel> = emptyList(),
     val error: String? = null,
     val searched: Boolean = false,
+    /** "All": one search across every platform, shown in sections (the default). */
+    val all: Boolean = true,
+    val top: AllResults? = null,
 )
 
+/** Results of an "All" search, one section per kind. */
+data class AllResults(
+    val songs: List<Track>,
+    val videos: List<Track>,
+    val soundcloud: List<Track>,
+    val albums: List<RemoteCollection>,
+    val playlists: List<RemoteCollection>,
+    val channels: List<app.mixtape.source.Channel>,
+) {
+    val isEmpty get() = songs.isEmpty() && videos.isEmpty() && soundcloud.isEmpty() && albums.isEmpty() && playlists.isEmpty() && channels.isEmpty()
+}
+
 class SearchViewModel(private val container: AppContainer) : ViewModel() {
+    /** Every platform at once: YouTube Music, YouTube, SoundCloud, Deezer, Spotify (if connected). */
+    private suspend fun searchEverywhere(q: String): AllResults = kotlinx.coroutines.coroutineScope {
+        val src = container.sources
+        suspend fun <T> safe(block: suspend () -> List<T>): List<T> = runCatching { block() }.getOrDefault(emptyList())
+        val songs = async { safe { src.search(q, SearchFilter.YT_MUSIC_SONGS) } }
+        val videos = async { safe { src.search(q, SearchFilter.YT_VIDEOS) } }
+        val sc = async { safe { src.search(q, SearchFilter.SOUNDCLOUD) } }
+        val albums = async { safe { src.searchCollections(q, SearchFilter.YT_MUSIC_ALBUMS) } }
+        val ytLists = async { safe { src.searchCollections(q, SearchFilter.YT_PLAYLISTS) } }
+        val dzLists = async { safe { container.deezer.searchPlaylists(q, 10) } }
+        val spLists = async { if (container.spotifyAuth.loggedIn.value) safe { container.spotify.searchPlaylists(q, 1) } else emptyList() }
+        val channels = async { safe { container.subscriptions.searchChannels(q) } }
+        AllResults(
+            songs = songs.await().take(8),
+            videos = videos.await().take(6),
+            soundcloud = sc.await().take(6),
+            albums = albums.await().take(12),
+            playlists = (ytLists.await().take(8) + spLists.await().take(6) + dzLists.await().take(8)).distinctBy { it.url },
+            channels = channels.await().take(10),
+        )
+    }
+
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
     private var job: Job? = null
 
     fun setQuery(q: String) = _state.update { it.copy(query = q) }
 
+    fun setAll() {
+        _state.update { it.copy(all = true) }
+        val q = _state.value.query
+        if (q.isNotBlank() && !LinkResolver.looksLikeLink(q)) search()
+    }
+
     fun setFilter(f: SearchFilter) {
-        _state.update { it.copy(filter = f) }
+        _state.update { it.copy(filter = f, all = false) }
         val q = _state.value.query
         if (q.isNotBlank() && !LinkResolver.looksLikeLink(q)) search()
     }
@@ -106,6 +154,16 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
         job?.cancel()
         job = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
+            if (_state.value.all) {
+                val top = searchEverywhere(q)
+                _state.update {
+                    it.copy(
+                        top = top, loading = false, searched = true,
+                        error = if (top.isEmpty) "Nothing found, or no internet connection" else null,
+                    )
+                }
+                return@launch
+            }
             if (filter == SearchFilter.YT_CHANNELS) {
                 runCatching { container.subscriptions.searchChannels(q) }
                     .onSuccess { ch -> _state.update { it.copy(channels = ch, results = emptyList(), collections = emptyList(), loading = false, searched = true) } }
@@ -138,103 +196,146 @@ fun SearchScreen(openCollection: (String) -> Unit, openChannel: (String) -> Unit
     val doneFlow = remember { container.downloads.doneKeys() }
     val liked by likedFlow.collectAsStateWithLifecycle(emptySet())
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
-    val focus = LocalFocusManager.current
     val isLink = LinkResolver.looksLikeLink(state.query)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    fun submit() {
-        focus.clearFocus()
-        if (isLink) actions.openLink(state.query) else vm.search()
-    }
-
-    Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = state.query,
-            onValueChange = vm::setQuery,
-            placeholder = { Text("Search, or paste a YouTube / Spotify / SoundCloud link") },
-            leadingIcon = { Icon(if (isLink) Icons.Filled.Link else Icons.Filled.Search, null) },
-            trailingIcon = {
-                if (state.query.isNotEmpty()) {
-                    IconButton(onClick = { vm.setQuery("") }) { Icon(Icons.Filled.Clear, "Clear") }
-                }
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = if (isLink) ImeAction.Go else ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { submit() }, onGo = { submit() }),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-
+    SmartSearch(
+        box = "music",
+        query = state.query,
+        onQueryChange = vm::setQuery,
+        onSubmit = { q -> if (LinkResolver.looksLikeLink(q)) actions.openLink(q) else vm.search() },
+        placeholder = "Songs, artists, videos, playlists, or paste a link",
+        isLink = isLink,
+    ) {
         if (isLink) {
-            Button(
-                onClick = { submit() },
-                modifier = Modifier.padding(horizontal = 16.dp),
-            ) { Text("Open link") }
-            Text(
-                "Works with songs, playlists and albums from YouTube, YouTube Music, SoundCloud and Spotify. " +
-                    "You can also use Share > Mixtape from those apps.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp),
-            )
-        } else {
-        Row(
-            Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SearchFilter.entries.forEach { f ->
-                FilterChip(
-                    selected = state.filter == f,
-                    onClick = { vm.setFilter(f) },
-                    label = { Text(f.label) },
+            Column {
+                Button(onClick = { actions.openLink(state.query) }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Open link") }
+                Text(
+                    "Works with songs, playlists and albums from YouTube, YouTube Music, SoundCloud, Spotify and Deezer. " +
+                        "You can also use Share > Mixtape from those apps.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        } else Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(selected = state.all, onClick = { vm.setAll() }, label = { Text("All") })
+                SearchFilter.entries.forEach { f ->
+                    FilterChip(selected = !state.all && state.filter == f, onClick = { vm.setFilter(f) }, label = { Text(f.label) })
+                }
+            }
+
+            val top = state.top
+            when {
+                state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                state.error != null -> EmptyState("Couldn't search: ${state.error}")
+                !state.searched -> EmptyState("Search YouTube Music, YouTube, SoundCloud, Spotify and Deezer at once. Tap the mic to search by voice.")
+                state.all && top != null -> AllResultsList(top, liked, downloaded, openCollection, openChannel, onSeeAll = { vm.setFilter(it) })
+                state.filter == SearchFilter.YT_CHANNELS && state.channels.isEmpty() -> EmptyState("No channels found")
+                state.filter == SearchFilter.YT_CHANNELS -> {
+                    val subsFlow = remember { container.subscriptions.subscribedIds() }
+                    val subbed by subsFlow.collectAsStateWithLifecycle(emptySet())
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        items(state.channels, key = { it.id }) { c ->
+                            ChannelResultRow(
+                                c, subscribed = c.id in subbed,
+                                onOpen = { openChannel(c.id) },
+                                onToggle = {
+                                    scope.launch {
+                                        if (c.id in subbed) container.subscriptions.unsubscribe(c.id)
+                                        else container.subscriptions.subscribe(c)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+                state.filter.collections && state.collections.isEmpty() -> EmptyState("No playlists found")
+                state.filter.collections -> CollectionList(state.collections, openCollection)
+                state.results.isEmpty() -> EmptyState("No results")
+                // Videos open in the video player, like YouTube; songs play as audio.
+                state.filter == SearchFilter.YT_VIDEOS -> TrackList(
+                    state.results, liked, downloaded,
+                    onItemClick = { list, i -> actions.watchVideo(list[i]) },
+                )
+                // Like Spotify: tapping a song plays it, then similar songs (autoplay radio).
+                else -> TrackList(
+                    state.results, liked, downloaded,
+                    onItemClick = { list, i -> actions.play(listOf(list[i]), 0) },
                 )
             }
         }
+    }
+}
 
-        when {
-            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+@Composable
+private fun ResultHeader(title: String, filter: SearchFilter?, onSeeAll: (SearchFilter) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        if (filter != null) TextButton(onClick = { onSeeAll(filter) }) { Text("See all") }
+    }
+}
+
+/** "All" results in sections, like Spotify's search. */
+@Composable
+private fun AllResultsList(
+    top: AllResults,
+    liked: Set<String>,
+    downloaded: Set<String>,
+    openCollection: (String) -> Unit,
+    openChannel: (String) -> Unit,
+    onSeeAll: (SearchFilter) -> Unit,
+) {
+    val actions = LocalTrackActions.current
+    LazyColumn(Modifier.fillMaxSize()) {
+        if (top.songs.isNotEmpty()) {
+            item { ResultHeader("Songs", SearchFilter.YT_MUSIC_SONGS, onSeeAll) }
+            items(top.songs, key = { "s" + it.key }) { t ->
+                TrackRow(t, t.key in liked, t.key in downloaded, onClick = { actions.play(listOf(t), 0) })
             }
-            state.error != null -> EmptyState("Couldn't search: ${state.error}")
-            !state.searched -> EmptyState("Search YouTube Music, YouTube and SoundCloud from one place, or paste a link.")
-            state.filter == SearchFilter.YT_CHANNELS && state.channels.isEmpty() -> EmptyState("No channels found")
-            state.filter == SearchFilter.YT_CHANNELS -> {
-                val subsFlow = remember { container.subscriptions.subscribedIds() }
-                val subbed by subsFlow.collectAsStateWithLifecycle(emptySet())
-                val scope = androidx.compose.runtime.rememberCoroutineScope()
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(state.channels, key = { it.id }) { c ->
-                        ChannelResultRow(
-                            c, subscribed = c.id in subbed,
-                            onOpen = { openChannel(c.id) },
-                            onToggle = {
-                                scope.launch {
-                                    if (c.id in subbed) container.subscriptions.unsubscribe(c.id)
-                                    else container.subscriptions.subscribe(c)
-                                }
-                            },
-                        )
+        }
+        if (top.channels.isNotEmpty()) {
+            item {
+                ResultHeader("Artists & channels", SearchFilter.YT_CHANNELS, onSeeAll)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    top.channels.forEach { c ->
+                        Column(
+                            Modifier.width(88.dp).clickable { openChannel(c.id) },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            ChannelAvatar(c.avatarUrl, 72)
+                            Text(c.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
                     }
                 }
             }
-            state.filter.collections && state.collections.isEmpty() -> EmptyState("No playlists found")
-            state.filter.collections -> CollectionList(state.collections, openCollection)
-            state.results.isEmpty() -> EmptyState("No results")
-            // Videos open in the video player, like YouTube; songs play as audio.
-            state.filter == SearchFilter.YT_VIDEOS -> TrackList(
-                state.results, liked, downloaded,
-                onItemClick = { list, i -> actions.watchVideo(list[i]) },
-            )
-            // Like Spotify: tapping a song plays it, then similar songs (autoplay radio), rather
-            // than the rest of the search results.
-            else -> TrackList(
-                state.results, liked, downloaded,
-                onItemClick = { list, i -> actions.play(listOf(list[i]), 0) },
-            )
         }
+        if (top.videos.isNotEmpty()) {
+            item { ResultHeader("Videos", SearchFilter.YT_VIDEOS, onSeeAll) }
+            items(top.videos, key = { "v" + it.key }) { t ->
+                TrackRow(t, t.key in liked, t.key in downloaded, onClick = { actions.watchVideo(t) })
+            }
         }
+        if (top.albums.isNotEmpty()) {
+            item { ResultHeader("Albums", SearchFilter.YT_MUSIC_ALBUMS, onSeeAll); CollectionRow(top.albums) { openCollection(it.url) } }
+        }
+        if (top.playlists.isNotEmpty()) {
+            item { ResultHeader("Playlists", SearchFilter.YT_PLAYLISTS, onSeeAll); CollectionRow(top.playlists) { openCollection(it.url) } }
+        }
+        if (top.soundcloud.isNotEmpty()) {
+            item { ResultHeader("On SoundCloud", SearchFilter.SOUNDCLOUD, onSeeAll) }
+            items(top.soundcloud, key = { "c" + it.key }) { t ->
+                TrackRow(t, t.key in liked, t.key in downloaded, onClick = { actions.play(listOf(t), 0) })
+            }
+        }
+        item { Box(Modifier.padding(24.dp)) }
     }
 }
 

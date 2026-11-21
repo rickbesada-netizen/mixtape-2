@@ -78,6 +78,8 @@ data class Comment(
     val pinned: Boolean,
     val hearted: Boolean,
     val replies: Int,
+    /** Where to load this comment's replies from (NewPipe page), if it has any. */
+    val repliesPage: Any? = null,
 )
 
 /** A time-coded caption line. */
@@ -168,22 +170,38 @@ class YouTubeWatch(private val http: OkHttpClient) {
         )
     }
 
+    private val commentExtractors = java.util.concurrent.ConcurrentHashMap<String, org.schabi.newpipe.extractor.comments.CommentsExtractor>()
+
+    /** Search suggestions as you type, straight from YouTube. */
+    suspend fun suggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        runCatching { yt.suggestionExtractor.suggestionList(query) }.getOrDefault(emptyList()).take(10)
+    }
+
+    /** Replies to a comment (only after that video's comments have been loaded). */
+    suspend fun replies(videoId: String, page: Any): List<Comment> = withContext(Dispatchers.IO) {
+        val ex = commentExtractors[videoId] ?: throw IOException("Reload the comments")
+        ex.getPage(page as Page).items.mapNotNull { toComment(it) }
+    }
+
+    private fun toComment(item: Any?): Comment? = (item as? CommentsInfoItem)?.let { c ->
+        Comment(
+            author = c.uploaderName ?: "",
+            avatar = c.uploaderAvatars.bestUrl(),
+            text = htmlToText(c.commentText?.content.orEmpty()),
+            likes = c.likeCount.coerceAtLeast(0),
+            ago = c.textualUploadDate ?: "",
+            pinned = c.isPinned,
+            hearted = c.isHeartedByUploader,
+            replies = c.replyCount.coerceAtLeast(0),
+            repliesPage = c.replies?.takeIf { Page.isValid(it) },
+        )
+    }
+
     fun comments(videoId: String): Pager<Comment> {
         val ex = yt.getCommentsExtractor("https://www.youtube.com/watch?v=$videoId")
-        return Pager({ ex.fetchPage(); ex.initialPage }, { ex.getPage(it) }) { item ->
-            (item as? CommentsInfoItem)?.let { c ->
-                Comment(
-                    author = c.uploaderName ?: "",
-                    avatar = c.uploaderAvatars.bestUrl(),
-                    text = htmlToText(c.commentText?.content.orEmpty()),
-                    likes = c.likeCount.coerceAtLeast(0),
-                    ago = c.textualUploadDate ?: "",
-                    pinned = c.isPinned,
-                    hearted = c.isHeartedByUploader,
-                    replies = c.replyCount.coerceAtLeast(0),
-                )
-            }
-        }
+        commentExtractors[videoId] = ex
+        return Pager({ ex.fetchPage(); ex.initialPage }, { ex.getPage(it) }) { toComment(it) }
     }
 
     // ---------------------------------------------------------------- extras

@@ -116,7 +116,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
-private fun buildSource(container: AppContainer, choice: VideoChoice?, offline: File?, hls: String?): MediaSource {
+internal fun buildSource(container: AppContainer, choice: VideoChoice?, offline: File?, hls: String?): MediaSource {
     if (offline != null) {
         val factory = DataSource.Factory { EncryptedFileDataSource(container.crypto.dataKey) }
         return ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(Uri.fromFile(offline)))
@@ -648,7 +648,7 @@ fun VideoScreen(
                     commentsError?.let { Text("Couldn't load comments: $it", style = MaterialTheme.typography.bodySmall) }
                 }
             }
-            items(comments) { c -> CommentRow(c) }
+            items(comments) { c -> CommentRow(c, videoId) }
             if (commentsPager != null) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
@@ -705,8 +705,13 @@ fun VideoScreen(
 }
 
 @Composable
-private fun CommentRow(c: Comment) {
+private fun CommentRow(c: Comment, videoId: String, isReply: Boolean = false) {
+    val container = LocalContainer.current
+    val scope = rememberCoroutineScope()
     var open by remember { mutableStateOf(false) }
+    var replies by remember { mutableStateOf<List<Comment>?>(null) }
+    var repliesLoading by remember { mutableStateOf(false) }
+    Column {
     Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Box(Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp))) {
             if (c.avatar != null) AsyncImage(model = c.avatar, contentDescription = null, modifier = Modifier.fillMaxSize().background(Color.Transparent, RoundedCornerShape(16.dp)))
@@ -722,8 +727,31 @@ private fun CommentRow(c: Comment) {
                 Icon(Icons.Filled.ThumbUp, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(" " + (if (c.likes > 0) compactCount(c.likes.toLong()) else ""), style = MaterialTheme.typography.labelSmall)
                 if (c.hearted) Text("  ♥ by creator", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                if (c.replies > 0) Text("  ${c.replies} replies", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val page = c.repliesPage
+            if (!isReply && c.replies > 0 && page != null) {
+                TextButton(onClick = {
+                    if (replies != null) { replies = null } else {
+                        repliesLoading = true
+                        scope.launch {
+                            replies = runCatching { container.youtubeWatch.replies(videoId, page) }.getOrDefault(emptyList())
+                            repliesLoading = false
+                        }
+                    }
+                }) {
+                    Text(
+                        when {
+                            repliesLoading -> "Loading replies..."
+                            replies != null -> "Hide replies"
+                            else -> "${c.replies} ${if (c.replies == 1) "reply" else "replies"}"
+                        },
+                    )
+                }
             }
         }
+    }
+    replies?.forEach { r ->
+        Box(Modifier.padding(start = 40.dp)) { CommentRow(r, videoId, isReply = true) }
+    }
     }
 }

@@ -98,6 +98,9 @@ class AppContainer(context: Context) {
     /** Watch history (with resume positions) and Watch later. */
     val videoLibrary = app.mixtape.data.VideoLibrary(context, library)
 
+    /** Recent searches for each search box. */
+    val searchHistory = app.mixtape.data.SearchHistory(context)
+
     /** In-app updates from the GitHub release. */
     val updater = app.mixtape.core.Updater(context, http)
 

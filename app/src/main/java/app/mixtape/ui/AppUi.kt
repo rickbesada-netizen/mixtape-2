@@ -61,6 +61,7 @@ import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CleanProgressDialog
 import app.mixtape.ui.screens.BrowseScreen
 import app.mixtape.ui.screens.VideosScreen
+import app.mixtape.ui.screens.ShortsScreen
 import androidx.compose.material.icons.filled.OndemandVideo
 import app.mixtape.ui.screens.UpdateDialogs
 import app.mixtape.ui.screens.BrowseCategoryScreen
@@ -220,7 +221,7 @@ fun MixtapeAppUi(container: AppContainer) {
     CompositionLocalProvider(LocalContainer provides container, LocalTrackActions provides actions) {
         val backStack by nav.currentBackStackEntryAsState()
         val route = backStack?.destination?.route
-        val showChrome = route != "nowplaying" && route?.startsWith("video/") != true && route?.startsWith("censor/") != true
+        val showChrome = route != "nowplaying" && route?.startsWith("video/") != true && route?.startsWith("censor/") != true && route != "shorts"
 
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -267,6 +268,14 @@ fun MixtapeAppUi(container: AppContainer) {
                         openVideo = { nav.navigate("video/" + URLEncoder.encode(it, "UTF-8")) },
                         openChannel = { nav.navigate("channel/$it") },
                         openSubscriptions = { nav.navigate("subs") },
+                        openShorts = { nav.navigate("shorts") },
+                    )
+                }
+                composable("shorts") {
+                    ShortsScreen(
+                        onBack = { nav.popBackStack() },
+                        openVideo = { nav.navigate("video/" + URLEncoder.encode(it, "UTF-8")) },
+                        openChannel = { nav.navigate("channel/$it") },
                     )
                 }
                 composable("browse") {

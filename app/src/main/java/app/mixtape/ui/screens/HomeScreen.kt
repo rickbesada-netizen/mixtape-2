@@ -209,7 +209,7 @@ fun HomeScreen(openPlaylist: (Long) -> Unit, openSubscriptions: () -> Unit, open
 }
 
 @Composable
-private fun SectionHeader(title: String, trailing: (@Composable () -> Unit)? = null) {
+internal fun SectionHeader(title: String, trailing: (@Composable () -> Unit)? = null) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -267,7 +267,7 @@ private fun VideoRow(tracks: List<Track>, onTap: (Int) -> Unit) {
 }
 
 @Composable
-private fun CollectionRow(items: List<RemoteCollection>, onTap: (RemoteCollection) -> Unit) {
+internal fun CollectionRow(items: List<RemoteCollection>, onTap: (RemoteCollection) -> Unit) {
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(items, key = { it.url }) { c ->
             Column(Modifier.width(140.dp).clickable { onTap(c) }) {
