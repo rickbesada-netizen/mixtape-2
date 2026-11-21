@@ -167,6 +167,10 @@ fun VideoScreen(
     var selected by remember { mutableStateOf<VideoChoice?>(null) }
     var offlineFile by remember { mutableStateOf<File?>(null) }
     var fullscreen by remember { mutableStateOf(false) }
+    /** Pinched out: the video fills the screen (cropping the edges), like YouTube's zoom. */
+    var zoomFill by remember { mutableStateOf(false) }
+    /** Fullscreen because the phone was turned sideways (so turning it back exits). */
+    var fullscreenFromRotation by remember { mutableStateOf(false) }
     var votes by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var segments by remember { mutableStateOf<List<SkipSegment>>(emptyList()) }
     var captionTrack by remember { mutableStateOf<CaptionTrack?>(null) }
@@ -353,41 +357,87 @@ fun VideoScreen(
         seekFlash = if (ms > 0) "+${ms / 1000}s" else "${ms / 1000}s"
     }
 
+    // True fullscreen like YouTube: the status bar and navigation buttons hide, the video uses the
+    // whole screen (including round corners / camera cutout), and they come back with a swipe.
+    fun applySystemBars(full: Boolean) {
+        val act = activity ?: return
+        val window = act.window
+        val ctl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        if (full) {
+            ctl.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            ctl.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else {
+            ctl.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    if (full) android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    else android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
+    }
+
+    fun setFullscreen(on: Boolean, fromButton: Boolean) {
+        fullscreen = on
+        if (!on) zoomFill = false
+        applySystemBars(on)
+        if (fromButton) {
+            fullscreenFromRotation = false
+            activity?.requestedOrientation =
+                if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Turning the phone sideways goes fullscreen; turning it back comes out.
+    val orientation = androidx.compose.ui.platform.LocalConfiguration.current.orientation
+    LaunchedEffect(orientation) {
+        val landscape = orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if (landscape && !fullscreen) {
+            fullscreenFromRotation = true
+            setFullscreen(true, fromButton = false)
+        } else if (!landscape && fullscreen && fullscreenFromRotation) {
+            fullscreenFromRotation = false
+            setFullscreen(false, fromButton = false)
+        }
+    }
+
+    // Back leaves fullscreen first, like YouTube.
+    androidx.activity.compose.BackHandler(enabled = fullscreen) { setFullscreen(false, fromButton = true) }
+
+    DisposableEffect(Unit) { onDispose { applySystemBars(false) } }
+
     val videoBox: @Composable (Modifier) -> Unit = { mod ->
         Box(mod.background(Color.Black), contentAlignment = Alignment.Center) {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
+                    val pv = PlayerView(ctx).apply {
                         this.player = player
-                        setFullscreenButtonClickListener { isFull ->
-                            fullscreen = isFull
-                            (ctx as? Activity)?.requestedOrientation =
-                                if (isFull) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                        }
+                        resizeMode = if (zoomFill) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setFullscreenButtonClickListener { isFull -> setFullscreen(isFull, fromButton = true) }
                         playerView = this
                     }
+                    // Pinch to zoom / double-tap to skip, like YouTube.
+                    app.mixtape.player.VideoGestureFrame(
+                        ctx,
+                        onZoom = { fill ->
+                            if (fill != zoomFill) {
+                                zoomFill = fill
+                                seekFlash = if (fill) "Zoomed to fill" else "Original size"
+                            }
+                        },
+                        onDoubleTapSide = { forward -> seekBy(if (forward) 10_000 else -10_000) },
+                    ).apply { addView(pv) }
+                },
+                update = {
+                    playerView?.resizeMode = if (zoomFill) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    playerView?.setFullscreenButtonState(fullscreen)
                 },
                 modifier = Modifier.fillMaxSize(),
             )
-            if (!inPip) {
-                // Double-tap the left / right side to skip 10 seconds, like YouTube.
-                Row(Modifier.fillMaxSize().padding(bottom = 56.dp)) {
-                    Box(Modifier.weight(0.35f).fillMaxHeight().pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = { seekBy(-10_000) },
-                            onTap = { playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() } },
-                        )
-                    })
-                    Spacer(Modifier.weight(0.3f))
-                    Box(Modifier.weight(0.35f).fillMaxHeight().pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = { seekBy(10_000) },
-                            onTap = { playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() } },
-                        )
-                    })
-                }
-            }
             if (captionText.isNotBlank()) {
                 Text(
                     captionText,
