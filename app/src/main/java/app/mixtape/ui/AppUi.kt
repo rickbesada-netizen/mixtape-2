@@ -223,6 +223,14 @@ fun MixtapeAppUi(container: AppContainer) {
         val route = backStack?.destination?.route
         val showChrome = route != "nowplaying" && route?.startsWith("video/") != true && route?.startsWith("censor/") != true && route != "shorts"
 
+        fun switchTab(r: String) {
+            nav.navigate(r) {
+                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
@@ -231,7 +239,8 @@ fun MixtapeAppUi(container: AppContainer) {
                         if (playerState.nowPlaying != null) {
                             MiniPlayer(playerState, onOpen = { nav.navigate("nowplaying") })
                         }
-                        NavigationBar {
+                        // The Videos section draws its own YouTube-style bar.
+                        if (route != "videos") NavigationBar {
                             tabs.forEach { tab ->
                                 NavigationBarItem(
                                     selected = backStack?.destination?.route == tab.route,
@@ -269,6 +278,9 @@ fun MixtapeAppUi(container: AppContainer) {
                         openChannel = { nav.navigate("channel/$it") },
                         openSubscriptions = { nav.navigate("subs") },
                         openShorts = { nav.navigate("shorts") },
+                        openMusic = { switchTab("home") },
+                        openDownloads = { switchTab("downloads") },
+                        openSettings = { switchTab("settings") },
                     )
                 }
                 composable("shorts") {

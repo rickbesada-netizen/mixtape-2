@@ -169,7 +169,40 @@ class VideoLibrary(context: Context, private val library: LibraryRepository) {
         return if (create) library.createPlaylist(WATCH_LATER) else null
     }
 
+    // ---------------------------------------------------------------- Liked videos
+
+    /** Videos you liked (the thumbs-up on the watch page), newest first. Also a synced playlist. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun likedVideos(): Flow<List<VideoItem>> = listFlow(LIKED)
+
+    suspend fun isLiked(videoId: String): Boolean {
+        val id = listId(LIKED, create = false) ?: return false
+        return library.playlistTracksOnce(id).any { it.sourceId == videoId }
+    }
+
+    suspend fun toggleLiked(v: VideoItem): Boolean {
+        val id = listId(LIKED, create = true)!!
+        val track = v.toTrack().copy(source = SourceType.YOUTUBE_VIDEO)
+        val has = library.playlistTracksOnce(id).any { it.sourceId == v.id }
+        if (has) library.removeFromPlaylist(id, track.key) else library.addToPlaylist(id, track)
+        return !has
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun listFlow(name: String): Flow<List<VideoItem>> = library.playlists()
+        .map { list -> list.firstOrNull { it.playlist.name == name }?.playlist?.id }
+        .flatMapLatest { id ->
+            if (id == null) flowOf(emptyList())
+            else library.playlistTracks(id).map { tracks -> tracks.map { VideoItem.fromTrack(it) }.reversed() }
+        }
+
+    private suspend fun listId(name: String, create: Boolean): Long? {
+        library.playlists().first().firstOrNull { it.playlist.name == name }?.let { return it.playlist.id }
+        return if (create) library.createPlaylist(name) else null
+    }
+
     companion object {
+        const val LIKED = "Liked videos"
         const val WATCH_LATER = "Watch later"
         private const val MAX = 500
     }

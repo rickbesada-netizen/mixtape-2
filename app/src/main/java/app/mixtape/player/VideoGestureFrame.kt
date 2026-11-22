@@ -17,6 +17,7 @@ class VideoGestureFrame(
     context: Context,
     private val onZoom: (fill: Boolean) -> Unit,
     private val onDoubleTapSide: (forward: Boolean) -> Unit,
+    private val onSingleTap: () -> Unit = {},
 ) : FrameLayout(context) {
 
     private var scaleTotal = 1f
@@ -43,6 +44,11 @@ class VideoGestureFrame(
     })
 
     private val taps = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            onSingleTap()
+            return true
+        }
+
         override fun onDoubleTap(e: MotionEvent): Boolean {
             val x = e.x / width.coerceAtLeast(1)
             when {
@@ -68,6 +74,8 @@ class VideoGestureFrame(
             if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) pinching = false
             return true
         }
-        return super.dispatchTouchEvent(ev)
+        super.dispatchTouchEvent(ev)
+        // Always keep the touch, so taps and double-taps are seen even where nothing else wants them.
+        return true
     }
 }

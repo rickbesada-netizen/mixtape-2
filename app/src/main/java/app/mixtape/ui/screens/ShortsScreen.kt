@@ -64,6 +64,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
+/** A Short tapped on the Home shelf, to play first. */
+object ShortsLaunch {
+    @Volatile var first: VideoItem? = null
+}
+
 /** Where Shorts come from: your channels' Shorts, plus popular ones from YouTube search. */
 private class ShortsSource(private val container: AppContainer) {
     private val search: Pager<YtItem> = container.youtubeWatch.search("#shorts", YouTubeWatch.SearchKind.VIDEOS)
@@ -118,7 +123,9 @@ fun ShortsScreen(onBack: () -> Unit, openVideo: (String) -> Unit, openChannel: (
     }
 
     LaunchedEffect(Unit) {
-        shorts = runCatching { source.more() }.getOrDefault(emptyList()).distinctBy { it.id }
+        val first = ShortsLaunch.first
+        ShortsLaunch.first = null
+        shorts = (listOfNotNull(first) + runCatching { source.more() }.getOrDefault(emptyList())).distinctBy { it.id }
         loading = false
     }
 
