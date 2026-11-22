@@ -103,6 +103,18 @@ fun DownloadsScreen(openVideo: (String) -> Unit, openPlaylist: (Long) -> Unit) {
         .filter { it.downloadedCount > 0 }
         .sortedByDescending { it.lastDownloadAt ?: 0L }
     val looseSongs = songs.filter { it.download.trackKey !in inPlaylists }
+
+    // All songs, in the order you pick (default: most recently downloaded first).
+    var songSort by app.mixtape.ui.components.rememberSongSort("downloads")
+    val playStats = app.mixtape.ui.components.rememberPlayStats()
+    val sortedSongs = remember(songs, songSort, playStats) {
+        val byKey = songs.associateBy { it.download.trackKey }
+        val base = songs.sortedByDescending { it.download.createdAt }
+        val ordered = app.mixtape.ui.components.sortSongs(base.mapNotNull { it.track?.toTrack() }, songSort, playStats) { t, _ ->
+            byKey[t.key]?.download?.createdAt ?: 0L
+        }
+        ordered.mapNotNull { byKey[it.key] }
+    }
     val totalBytes = allDone.sumOf { it.download.bytesTotal }
 
     var view by rememberSaveable { mutableStateOf(DownloadsView.PLAYLISTS.name) }
@@ -270,16 +282,22 @@ fun DownloadsScreen(openVideo: (String) -> Unit, openPlaylist: (Long) -> Unit) {
                     if (songs.isEmpty()) item { EmptyHint("No songs downloaded yet.") }
                     else {
                         item {
-                            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Button(onClick = {
-                                    actions.play(songs.mapNotNull { it.track?.toTrack() }, 0)
+                                    actions.play(sortedSongs.mapNotNull { it.track?.toTrack() }, 0)
                                 }) { Text("Play all offline") }
-                                FilledTonalButton(onClick = { shuffleDownloaded(songs.mapNotNull { it.track?.toTrack() }) }) {
+                                FilledTonalButton(onClick = { shuffleDownloaded(sortedSongs.mapNotNull { it.track?.toTrack() }) }) {
                                     Icon(Icons.Filled.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Shuffle")
                                 }
+                                Spacer(Modifier.weight(1f))
+                                app.mixtape.ui.components.SongSortButton(songSort, { songSort = it }, defaultLabel = "Recently downloaded")
                             }
                         }
-                        songRows(songs, liked, actions::play, container)
+                        songRows(sortedSongs, liked, actions::play, container)
                     }
                 }
                 DownloadsView.VIDEOS -> {

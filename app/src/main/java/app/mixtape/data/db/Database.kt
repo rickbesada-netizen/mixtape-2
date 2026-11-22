@@ -356,6 +356,9 @@ interface MatchDao {
     suspend fun clearAutomatic()
 }
 
+/** When a song was last played and how many times, for sorting. */
+data class PlayStat(val trackKey: String, val lastPlayed: Long, val plays: Int)
+
 data class TrackPlays(
     @Embedded val track: TrackEntity,
     val plays: Int,
@@ -383,6 +386,9 @@ interface HistoryDao {
 
     @Query("SELECT DISTINCT trackKey FROM history")
     suspend fun allPlayedKeys(): List<String>
+
+    @Query("SELECT trackKey, MAX(playedAt) AS lastPlayed, COUNT(*) AS plays FROM history GROUP BY trackKey")
+    fun playStats(): Flow<List<PlayStat>>
 
     @Query("DELETE FROM history")
     suspend fun clear()

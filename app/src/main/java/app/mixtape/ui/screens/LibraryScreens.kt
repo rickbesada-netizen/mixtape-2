@@ -250,8 +250,13 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var downloadedOnly by rememberSaveable { mutableStateOf(startDownloadedOnly) }
-    val shown = remember(tracks, query, downloadedOnly, downloaded) {
-        filterTracks(tracks, query).let { l -> if (downloadedOnly) l.filter { it.key in downloaded } else l }
+    var songSort by app.mixtape.ui.components.rememberSongSort("playlist")
+    val playStats = app.mixtape.ui.components.rememberPlayStats()
+    val shown = remember(tracks, query, downloadedOnly, downloaded, songSort, playStats) {
+        // Playlist position: later songs were added more recently.
+        val position = tracks.withIndex().associate { (i, t) -> t.key to i.toLong() }
+        val filtered = filterTracks(tracks, query).let { l -> if (downloadedOnly) l.filter { it.key in downloaded } else l }
+        app.mixtape.ui.components.sortSongs(filtered, songSort, playStats) { t, i -> position[t.key] ?: i.toLong() }
     }
     val downloadedHere = tracks.count { it.key in downloaded }
 
@@ -291,8 +296,12 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
         if (searching) {
             TrackSearchField(query, onChange = { query = it })
         }
-        if (downloadedHere > 0) {
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (downloadedHere > 0) {
                 FilterChip(
                     selected = !downloadedOnly, onClick = { downloadedOnly = false },
                     label = { Text("All (${tracks.size})") },
@@ -302,6 +311,8 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                     label = { Text("Downloaded ($downloadedHere)") },
                 )
             }
+            Spacer(Modifier.weight(1f))
+            app.mixtape.ui.components.SongSortButton(songSort, { songSort = it }, defaultLabel = "Playlist order")
         }
         if (tracks.isEmpty()) {
             EmptyState("This playlist is empty.")
@@ -317,7 +328,7 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                             Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play")
                         }
                         FilledTonalButton(onClick = {
-                            container.player.playTracks(tracks, (tracks.indices).random(), shuffle = true)
+                            container.player.playTracks(shown, (shown.indices).random(), shuffle = true)
                         }) {
                             Icon(Icons.Filled.Shuffle, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Shuffle")
                         }
@@ -381,7 +392,13 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
     val downloaded by doneFlow.collectAsStateWithLifecycle(emptySet())
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
-    val shown = remember(tracks, query) { filterTracks(tracks, query) }
+    var songSort by app.mixtape.ui.components.rememberSongSort("smart-$kind")
+    val playStats = app.mixtape.ui.components.rememberPlayStats()
+    val shown = remember(tracks, query, songSort, playStats) {
+        // These lists come newest first, so a lower position means more recently added.
+        val n = tracks.size.toLong()
+        app.mixtape.ui.components.sortSongs(filterTracks(tracks, query), songSort, playStats) { _, i -> n - i }
+    }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -402,6 +419,14 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
         if (searching) {
             TrackSearchField(query, onChange = { query = it })
         }
+        if (tracks.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                app.mixtape.ui.components.SongSortButton(
+                    songSort, { songSort = it },
+                    defaultLabel = if (kind == "recent") "Recently played" else "Recently liked",
+                )
+            }
+        }
         if (tracks.isEmpty()) {
             EmptyState(if (kind == "recent") "Nothing played yet." else "Tap the heart on any song to save it here.")
         } else {
@@ -409,7 +434,7 @@ fun SmartListScreen(kind: String, onBack: () -> Unit) {
                 shown, liked, downloaded,
                 header = {
                     Row(Modifier.padding(16.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { actions.play(tracks, 0) }) { Text("Play all") }
+                        Button(onClick = { actions.play(shown, 0) }) { Text("Play all") }
                         FilledTonalButton(onClick = { actions.download(tracks.filter { it.key !in downloaded }) }) {
                             Text("Download all")
                         }
@@ -446,7 +471,8 @@ fun filterTracks(tracks: List<Track>, query: String): List<Track> {
     val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
     if (words.isEmpty()) return tracks
     return tracks.filter { t ->
-        val hay = (t.title + " " + t.artist + " " + (t.album ?: "")).lowercase()
+        // Renamed songs can be found by either name.
+        val hay = (t.title + " " + t.artist + " " + (t.album ?: "") + " " + (t.originalTitle ?: "") + " " + (t.originalArtist ?: "")).lowercase()
         words.all { hay.contains(it) }
     }
 }
