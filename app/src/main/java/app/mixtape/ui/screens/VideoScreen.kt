@@ -92,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -523,6 +524,11 @@ fun VideoScreen(
     androidx.activity.compose.BackHandler(enabled = fullscreen && !minimized) { setFullscreen(false, fromButton = true) }
     androidx.activity.compose.BackHandler(enabled = !fullscreen && panel != null && !minimized) { panel = null }
 
+    // Dragging the video down: how far (pixels), and how far it takes to shrink completely.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val dragAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+    val dragMaxPx = with(density) { (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.55f).dp.toPx() }
+
     fun minimizeNow() {
         if (fullscreen) setFullscreen(false, fromButton = true)
         panel = null
@@ -550,7 +556,22 @@ fun VideoScreen(
                         },
                         onDoubleTapSide = { forward -> seekBy(if (forward) 10_000 else -10_000) },
                         onSingleTap = { if (controlsVisible) controlsVisible = false else poke() },
-                        onSwipeDown = { if (fullscreen) setFullscreen(false, fromButton = true) else minimizeNow() },
+                        onDrag = { dy -> if (!fullscreen) scope.launch { dragAnim.snapTo(dy) } },
+                        onDragEnd = { dy, vy ->
+                            if (fullscreen) {
+                                // In full screen a drag down just leaves full screen.
+                                if (dy > 120 * density.density || vy > 1500f) setFullscreen(false, fromButton = true)
+                            } else scope.launch {
+                                if (dy > dragMaxPx * 0.25f || vy > 1500f) {
+                                    // Far enough (or flicked): finish the shrink into the corner.
+                                    dragAnim.animateTo(dragMaxPx, androidx.compose.animation.core.tween(160))
+                                    minimizeNow()
+                                    dragAnim.snapTo(0f)
+                                } else {
+                                    dragAnim.animateTo(0f, androidx.compose.animation.core.spring())
+                                }
+                            }
+                        },
                     ).apply { addView(pv) }
                 },
                 update = {
@@ -733,13 +754,24 @@ fun VideoScreen(
         return
     }
 
+    // While you drag it down, the whole page shrinks towards the bottom-right corner and the
+    // screen underneath shows through, like YouTube.
+    val dragP = (dragAnim.value / dragMaxPx).coerceIn(0f, 1f)
+    val pageBg = MaterialTheme.colorScheme.background
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        Modifier.fillMaxSize()
+            .graphicsLayer {
+                val sc = 1f - 0.62f * dragP
+                scaleX = sc
+                scaleY = sc
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.97f, 0.92f)
+            }
+            .background(pageBg.copy(alpha = 1f - dragP))
             .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.systemBars)),
     ) {
         playerArea(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         if (!fullscreen) {
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - dragP * 2.5f).coerceIn(0f, 1f) }) {
                 when (panel) {
                     null -> Details(
                         options = options,
