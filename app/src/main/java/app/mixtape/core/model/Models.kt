@@ -38,6 +38,9 @@ data class Track(
     val durationSec: Long = 0,
     val artworkUrl: String? = null,
     val isrc: String? = null,
+    /** The name as it came from YouTube / Spotify etc., when you've renamed the song. */
+    val originalTitle: String? = null,
+    val originalArtist: String? = null,
 ) {
     val key: String get() = keyOf(source, sourceId)
 

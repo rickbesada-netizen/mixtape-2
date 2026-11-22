@@ -219,6 +219,24 @@ fun SettingsScreen() {
         )
         HorizontalDivider()
 
+        Text("Song names", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        ListItem(
+            headlineContent = { Text("Write non-English song names in English letters") },
+            supportingContent = {
+                Text(
+                    "For songs in Arabic and other alphabets: adds an English-letter name so they're easy to read and search. " +
+                        "The original name is kept (and still searchable). To rename one song, use its ⋮ menu > Rename."
+                )
+            },
+            modifier = Modifier.clickable {
+                scope.launch {
+                    val n = container.library.latinizeLibrary()
+                    Toast.makeText(context, if (n == 0) "No non-English song names found" else "Added English letters to $n songs", Toast.LENGTH_LONG).show()
+                }
+            },
+        )
+        HorizontalDivider()
+
         Text("Clean versions", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         Text(
             "\"Clean version\" on a playlist already catches common swear words and slurs. Add any other words " +

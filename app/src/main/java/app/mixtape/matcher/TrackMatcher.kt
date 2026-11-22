@@ -31,7 +31,8 @@ class TrackMatcher(
 
     suspend fun resolveYoutubeId(spotifyKey: String): String {
         matches.get(spotifyKey)?.let { return it.youtubeId }
-        val original = library.getTrack(spotifyKey)
+        // Match on the song's original name, not your renamed version.
+        val original = library.getTrack(spotifyKey)?.let { it.copy(title = it.originalTitle ?: it.title, artist = it.originalArtist ?: it.artist) }
             ?: throw IOException("Track details missing, re-import the playlist")
         val best = candidates(original).firstOrNull()
             ?: throw IOException("No YouTube match found for \"${original.title}\"")

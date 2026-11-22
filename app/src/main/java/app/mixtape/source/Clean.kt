@@ -123,7 +123,7 @@ class CleanConverter(
     // ---- Checking one song ----
 
     private suspend fun check(track: Track, filter: Regex, keepIfNoClean: Boolean): CleanItem {
-        val shown = track.display()
+        val shown = track.copy(title = track.originalTitle ?: track.title, artist = track.originalArtist ?: track.artist).display()
         val rawTitle = track.title.lowercase()
 
         if (track.key in ownEdits()) return CleanItem(track, track, CleanStatus.MY_EDIT)

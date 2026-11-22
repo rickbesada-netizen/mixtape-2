@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.OndemandVideo
@@ -86,6 +88,35 @@ interface TrackActions {
 
     /** Open the editor to bleep out parts of a song yourself. */
     fun editClean(track: Track)
+
+    /** Give the song your own name (e.g. in English letters). */
+    fun rename(track: Track)
+
+    /** Open the song where it came from: the YouTube, Spotify, SoundCloud or Deezer app. */
+    fun openOriginal(track: Track)
+}
+
+/** The app a song came from, and its link there. */
+fun Track.originalAppName(): String = when (source) {
+    app.mixtape.core.model.SourceType.YOUTUBE, app.mixtape.core.model.SourceType.YOUTUBE_VIDEO -> "YouTube"
+    app.mixtape.core.model.SourceType.SOUNDCLOUD -> "SoundCloud"
+    app.mixtape.core.model.SourceType.SPOTIFY -> "Spotify"
+    app.mixtape.core.model.SourceType.DEEZER -> "Deezer"
+}
+
+fun Track.originalUrl(): String = when (source) {
+    app.mixtape.core.model.SourceType.YOUTUBE, app.mixtape.core.model.SourceType.YOUTUBE_VIDEO -> "https://www.youtube.com/watch?v=$sourceId"
+    app.mixtape.core.model.SourceType.SOUNDCLOUD -> sourceId
+    app.mixtape.core.model.SourceType.SPOTIFY -> "https://open.spotify.com/track/$sourceId"
+    app.mixtape.core.model.SourceType.DEEZER -> "https://www.deezer.com/track/$sourceId"
+}
+
+/** Each platform's colour, for the small badge on songs. */
+private fun Track.sourceColor(): androidx.compose.ui.graphics.Color = when (source) {
+    app.mixtape.core.model.SourceType.YOUTUBE, app.mixtape.core.model.SourceType.YOUTUBE_VIDEO -> androidx.compose.ui.graphics.Color(0xFFFF3B30)
+    app.mixtape.core.model.SourceType.SOUNDCLOUD -> androidx.compose.ui.graphics.Color(0xFFFF7700)
+    app.mixtape.core.model.SourceType.SPOTIFY -> androidx.compose.ui.graphics.Color(0xFF1DB954)
+    app.mixtape.core.model.SourceType.DEEZER -> androidx.compose.ui.graphics.Color(0xFFA238FF)
 }
 
 val LocalTrackActions = compositionLocalOf<TrackActions> { error("No TrackActions") }
@@ -141,16 +172,32 @@ fun TrackRow(
             )
             val sub = listOfNotNull(
                 shown.artist.takeIf { it.isNotBlank() },
-                track.source.label,
                 formatDuration(track.durationSec).takeIf { it.isNotEmpty() },
             ).joinToString(" · ")
-            Text(
-                sub,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Where the song is from (YouTube, Spotify...), as a small coloured badge.
+                Text(
+                    track.source.label,
+                    color = track.sourceColor(),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .background(track.sourceColor().copy(alpha = 0.15f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    sub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // A renamed song also shows its original name, small.
+            track.originalTitle?.let { orig ->
+                Text(orig, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         if (downloaded) {
             Icon(
@@ -208,6 +255,16 @@ fun TrackRow(
                         onClick = { menu = false; actions.downloadVideo(track) },
                     )
                 }
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                    onClick = { menu = false; actions.rename(track) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Open in ${track.originalAppName()}") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
+                    onClick = { menu = false; actions.openOriginal(track) },
+                )
                 DropdownMenuItem(
                     text = { Text("Make my own clean edit") },
                     leadingIcon = { Icon(Icons.Filled.CleaningServices, null) },

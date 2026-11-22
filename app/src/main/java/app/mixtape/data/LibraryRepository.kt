@@ -30,6 +30,28 @@ class LibraryRepository(private val db: AppDatabase) {
 
     suspend fun getTrack(key: String): Track? = tracks.get(key)?.toTrack()
 
+    /** Give a song your own name (null / blank = back to the original). */
+    suspend fun renameTrack(key: String, title: String?, artist: String?) {
+        tracks.setCustomName(key, title?.trim()?.ifBlank { null }, artist?.trim()?.ifBlank { null })
+    }
+
+    /**
+     * Adds English-letter names to every song in your library whose name is in another alphabet
+     * (Arabic etc.). The original stays saved, and both can be searched. Returns how many changed.
+     */
+    suspend fun latinizeLibrary(): Int {
+        var n = 0
+        for (t in tracks.unrenamedLibraryTracks()) {
+            val title = app.mixtape.core.text.Latinize.of(t.title)
+            val artist = app.mixtape.core.text.Latinize.of(t.artist)
+            if (title != null || artist != null) {
+                tracks.setCustomName(t.trackKey, title ?: t.title, artist)
+                n++
+            }
+        }
+        return n
+    }
+
     fun likedTracks(): Flow<List<Track>> = tracks.liked().map { l -> l.map { it.toTrack() } }
     fun likedKeys(): Flow<Set<String>> = tracks.likedKeys().map { it.toSet() }
 

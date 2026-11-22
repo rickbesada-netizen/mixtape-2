@@ -35,16 +35,21 @@ data class TrackEntity(
     val isrc: String?,
     val liked: Boolean = false,
     val likedAt: Long = 0,
+    /** Your own name for the song (e.g. in English letters); the original stays in [title]. */
+    val customTitle: String? = null,
+    val customArtist: String? = null,
 ) {
     fun toTrack() = Track(
         source = SourceType.fromPrefix(source),
         sourceId = sourceId,
-        title = title,
-        artist = artist,
+        title = customTitle ?: title,
+        artist = customArtist ?: artist,
         album = album,
         durationSec = durationSec,
         artworkUrl = artworkUrl,
         isrc = isrc,
+        originalTitle = if (customTitle != null) title else null,
+        originalArtist = if (customArtist != null) artist else null,
     )
 
     companion object {
@@ -153,7 +158,12 @@ interface TrackDao {
     suspend fun insertIgnore(tracks: List<TrackEntity>)
 
     @Query(
-        "UPDATE tracks SET title = :title, artist = :artist, album = :album, durationSec = :durationSec, " +
+        // A renamed song's original name is kept: if what's being saved is your own name for it,
+        // leave the original alone.
+        "UPDATE tracks SET " +
+            "title = CASE WHEN customTitle IS NOT NULL AND customTitle = :title THEN title ELSE :title END, " +
+            "artist = CASE WHEN customArtist IS NOT NULL AND customArtist = :artist THEN artist ELSE :artist END, " +
+            "album = :album, durationSec = :durationSec, " +
             "artworkUrl = :artworkUrl, isrc = :isrc WHERE trackKey = :trackKey"
     )
     suspend fun updateMeta(
@@ -173,9 +183,21 @@ interface TrackDao {
     @Query("SELECT trackKey FROM tracks WHERE liked = 1")
     fun likedKeys(): Flow<List<String>>
 
+    /** Rename a song (null = back to its original name). */
+    @Query("UPDATE tracks SET customTitle = :title, customArtist = :artist WHERE trackKey = :trackKey")
+    suspend fun setCustomName(trackKey: String, title: String?, artist: String?)
+
+    /** Songs in your library that haven't been renamed (for adding English-letter names). */
+    @Query(
+        "SELECT * FROM tracks WHERE customTitle IS NULL AND (liked = 1 OR trackKey IN (SELECT trackKey FROM playlist_tracks) " +
+            "OR trackKey IN (SELECT trackKey FROM downloads WHERE state = 'done'))"
+    )
+    suspend fun unrenamedLibraryTracks(): List<TrackEntity>
+
     /** Searches songs you have: downloaded, liked, or in any playlist. */
     @Query(
-        "SELECT * FROM tracks WHERE (title LIKE :q OR artist LIKE :q OR album LIKE :q) AND (" +
+        "SELECT * FROM tracks WHERE (title LIKE :q OR artist LIKE :q OR album LIKE :q " +
+            "OR customTitle LIKE :q OR customArtist LIKE :q) AND (" +
             "liked = 1 OR trackKey IN (SELECT trackKey FROM playlist_tracks) " +
             "OR trackKey IN (SELECT trackKey FROM downloads WHERE state = 'done')) " +
             "ORDER BY title COLLATE NOCASE LIMIT 300"
@@ -184,7 +206,8 @@ interface TrackDao {
 
     @Query(
         "SELECT t.* FROM tracks t INNER JOIN downloads d ON d.trackKey = t.trackKey " +
-            "WHERE d.state = 'done' AND (t.title LIKE :q OR t.artist LIKE :q OR t.album LIKE :q) " +
+            "WHERE d.state = 'done' AND (t.title LIKE :q OR t.artist LIKE :q OR t.album LIKE :q " +
+            "OR t.customTitle LIKE :q OR t.customArtist LIKE :q) " +
             "ORDER BY t.title COLLATE NOCASE LIMIT 300"
     )
     suspend fun searchDownloads(q: String): List<TrackEntity>
@@ -433,7 +456,7 @@ interface CensorDao {
         DownloadEntity::class, MatchEntity::class, HistoryEntity::class,
         SubscriptionEntity::class, CensorEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -474,9 +497,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v5: your own names for songs (e.g. Arabic titles in English letters). */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN customTitle TEXT")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN customArtist TEXT")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "mixtape.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }

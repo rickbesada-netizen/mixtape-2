@@ -63,7 +63,7 @@ class CensorStore(
      * These come back marked "auto": listen to each one and nudge it.
      */
     suspend fun autoMark(track: Track): Result<List<CensorRange>> {
-        val shown = track.display()
+        val shown = track.copy(title = track.originalTitle ?: track.title, artist = track.originalArtist ?: track.artist).display()
         val found = lyrics.find(shown.title, shown.artist, track.durationSec)
             ?: return Result.failure(IllegalStateException("Couldn't find lyrics for this song"))
         if (found.synced.isEmpty()) {

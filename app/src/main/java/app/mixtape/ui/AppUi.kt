@@ -61,6 +61,9 @@ import app.mixtape.ui.components.PlaylistPickerDialog
 import app.mixtape.ui.components.TrackActions
 import app.mixtape.source.LinkResult
 import app.mixtape.ui.screens.CleanProgressDialog
+import app.mixtape.ui.screens.RenameDialog
+import app.mixtape.ui.components.originalUrl
+import app.mixtape.ui.components.originalAppName
 import app.mixtape.ui.screens.BrowseScreen
 import app.mixtape.ui.screens.VideosScreen
 import app.mixtape.ui.screens.ShortsScreen
@@ -102,10 +105,12 @@ private val tabs = listOf(
 fun MixtapeAppUi(container: AppContainer) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var pickerFor by remember { mutableStateOf<Track?>(null) }
     var bulkPicker by remember { mutableStateOf<Pair<List<Track>, Long?>?>(null) }
     var cleanAsk by remember { mutableStateOf<Pair<String, List<Track>>?>(null) }
+    var renaming by remember { mutableStateOf<Track?>(null) }
     var cleanHidden by remember { mutableStateOf(false) }
     val cleanJob by container.clean.state.collectAsStateWithLifecycle()
     val playerState by container.player.state.collectAsStateWithLifecycle()
@@ -196,6 +201,21 @@ fun MixtapeAppUi(container: AppContainer) {
                         scope.launch { snackbar.showSnackbar("Already making a clean version, one at a time") }
                     else -> cleanAsk = name to tracks
                 }
+            }
+            override fun rename(track: Track) {
+                scope.launch {
+                    container.library.saveTracks(listOf(track))
+                    renaming = container.library.getTrack(track.key) ?: track
+                }
+            }
+            override fun openOriginal(track: Track) {
+                // Opens the YouTube / Spotify / SoundCloud / Deezer app if it's installed, otherwise the website.
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(track.originalUrl()))
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }.onFailure { scope.launch { snackbar.showSnackbar("Couldn't open ${track.originalAppName()}") } }
             }
             override fun editClean(track: Track) {
                 scope.launch {
@@ -418,6 +438,20 @@ fun MixtapeAppUi(container: AppContainer) {
         }
 
         UpdateDialogs()
+
+        renaming?.let { t ->
+            RenameDialog(
+                track = t,
+                onSave = { title, artist ->
+                    renaming = null
+                    scope.launch {
+                        container.library.renameTrack(t.key, title, artist)
+                        snackbar.showSnackbar(if (title == null && artist == null) "Back to the original name" else "Renamed")
+                    }
+                },
+                onDismiss = { renaming = null },
+            )
+        }
 
         cleanAsk?.let { (name, tracks) ->
             CleanStartDialog(
