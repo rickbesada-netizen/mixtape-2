@@ -18,6 +18,7 @@ class VideoGestureFrame(
     private val onZoom: (fill: Boolean) -> Unit,
     private val onDoubleTapSide: (forward: Boolean) -> Unit,
     private val onSingleTap: () -> Unit = {},
+    private val onSwipeDown: () -> Unit = {},
 ) : FrameLayout(context) {
 
     private var scaleTotal = 1f
@@ -44,6 +45,18 @@ class VideoGestureFrame(
     })
 
     private val taps = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+            val start = e1 ?: return false
+            val dy = e2.y - start.y
+            val dx = e2.x - start.x
+            // A downward swipe shrinks the video into the corner, like YouTube.
+            if (dy > 80 * resources.displayMetrics.density && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.5f && velocityY > 0) {
+                onSwipeDown()
+                return true
+            }
+            return false
+        }
+
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             onSingleTap()
             return true

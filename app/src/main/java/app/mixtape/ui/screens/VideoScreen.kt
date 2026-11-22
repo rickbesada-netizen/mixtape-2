@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -207,7 +208,15 @@ fun VideoScreen(
     onBack: () -> Unit,
     openChannel: (String) -> Unit = {},
     openVideo: (String) -> Unit = {},
+    minimized: Boolean = false,
+    miniBottomPadding: androidx.compose.ui.unit.Dp = 64.dp,
+    onMinimize: () -> Unit = onBack,
+    onExpand: () -> Unit = {},
+    onClose: () -> Unit = onBack,
 ) {
+    // Back (when nothing else is open) shrinks the video into the corner, like YouTube.
+    // Declared first so fullscreen / panel Back handlers below win while they're open.
+    androidx.activity.compose.BackHandler(enabled = !minimized) { onMinimize() }
     val container = LocalContainer.current
     val actions = LocalTrackActions.current
     val context = LocalContext.current
@@ -508,8 +517,14 @@ fun VideoScreen(
             setFullscreen(false, fromButton = false)
         }
     }
-    androidx.activity.compose.BackHandler(enabled = fullscreen) { setFullscreen(false, fromButton = true) }
-    androidx.activity.compose.BackHandler(enabled = !fullscreen && panel != null) { panel = null }
+    androidx.activity.compose.BackHandler(enabled = fullscreen && !minimized) { setFullscreen(false, fromButton = true) }
+    androidx.activity.compose.BackHandler(enabled = !fullscreen && panel != null && !minimized) { panel = null }
+
+    fun minimizeNow() {
+        if (fullscreen) setFullscreen(false, fromButton = true)
+        panel = null
+        onMinimize()
+    }
     DisposableEffect(Unit) { onDispose { applySystemBars(false) } }
 
     // ---------------------------------------------------------------- the video with its controls
@@ -532,6 +547,7 @@ fun VideoScreen(
                         },
                         onDoubleTapSide = { forward -> seekBy(if (forward) 10_000 else -10_000) },
                         onSingleTap = { if (controlsVisible) controlsVisible = false else poke() },
+                        onSwipeDown = { if (fullscreen) setFullscreen(false, fromButton = true) else minimizeNow() },
                     ).apply { addView(pv) }
                 },
                 update = {
@@ -557,7 +573,7 @@ fun VideoScreen(
                 Box(Modifier.fillMaxSize().background(Color(0x73000000)))
 
                 Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { if (fullscreen) setFullscreen(false, true) else onBack() }) {
+                    IconButton(onClick = { minimizeNow() }) {
                         Icon(Icons.Filled.KeyboardArrowDown, "Close", tint = Color.White)
                     }
                     Spacer(Modifier.weight(1f))
@@ -669,7 +685,55 @@ fun VideoScreen(
         return
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // Shrunk: a small window in the corner that keeps playing while you scroll the app.
+    if (minimized) {
+        Box(Modifier.fillMaxSize()) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                shadowElevation = 10.dp,
+                color = Color.Black,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.navigationBars)
+                    .padding(end = 8.dp, bottom = miniBottomPadding)
+                    .width(230.dp)
+                    .aspectRatio(16f / 9f),
+            ) {
+                Box {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                this.player = player
+                                useController = false
+                                setShutterBackgroundColor(android.graphics.Color.BLACK)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    // Tap the window to open it full size again.
+                    Box(Modifier.fillMaxSize().clickable { onExpand() })
+                    Row(Modifier.fillMaxWidth().background(Color(0x55000000)), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { togglePlay() }) {
+                            Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play / pause", tint = Color.White)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close", tint = Color.White) }
+                    }
+                    if (duration > 0) {
+                        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp).background(Color(0x55FFFFFF))) {
+                            Box(Modifier.fillMaxWidth((position.toFloat() / duration).coerceIn(0f, 1f)).height(2.dp).background(Color(0xFFFF0000)))
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.systemBars)),
+    ) {
         playerArea(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         if (!fullscreen) {
             Box(Modifier.fillMaxSize()) {

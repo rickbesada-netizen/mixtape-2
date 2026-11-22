@@ -1,5 +1,7 @@
 package app.mixtape.ui
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -221,7 +223,7 @@ fun MixtapeAppUi(container: AppContainer) {
     CompositionLocalProvider(LocalContainer provides container, LocalTrackActions provides actions) {
         val backStack by nav.currentBackStackEntryAsState()
         val route = backStack?.destination?.route
-        val showChrome = route != "nowplaying" && route?.startsWith("video/") != true && route?.startsWith("censor/") != true && route != "shorts"
+        val showChrome = route != "nowplaying" && route?.startsWith("censor/") != true && route != "shorts"
 
         fun switchTab(r: String) {
             nav.navigate(r) {
@@ -231,6 +233,7 @@ fun MixtapeAppUi(container: AppContainer) {
             }
         }
 
+        Box(Modifier.fillMaxSize()) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
@@ -365,17 +368,12 @@ fun MixtapeAppUi(container: AppContainer) {
                     )
                 }
                 composable("video/{id}") { entry ->
-                    VideoScreen(
-                        videoId = java.net.URLDecoder.decode(entry.arguments?.getString("id") ?: "", "UTF-8"),
-                        onBack = { nav.popBackStack() },
-                        openChannel = { nav.navigate("channel/$it") },
-                        // Next video replaces this one, so Back goes to where you came from.
-                        openVideo = { id ->
-                            nav.navigate("video/" + URLEncoder.encode(id, "UTF-8")) {
-                                popUpTo("video/{id}") { inclusive = true }
-                            }
-                        },
-                    )
+                    // Videos open in the floating player above the app; this page just hands over.
+                    val id = java.net.URLDecoder.decode(entry.arguments?.getString("id") ?: "", "UTF-8")
+                    LaunchedEffect(id) {
+                        VideoSession.open(id)
+                        nav.popBackStack()
+                    }
                 }
                 composable("censor/{key}") { entry ->
                     CensorScreen(
@@ -393,6 +391,30 @@ fun MixtapeAppUi(container: AppContainer) {
                     )
                 }
             }
+        }
+
+        // The video player floats above every screen: full size, or shrunk into the corner.
+        val sessionVideo = VideoSession.videoId
+        if (sessionVideo != null) {
+            androidx.compose.runtime.key(sessionVideo) {
+                VideoScreen(
+                    videoId = sessionVideo,
+                    minimized = VideoSession.minimized,
+                    miniBottomPadding = when {
+                        route == "videos" -> 64.dp
+                        playerState.nowPlaying != null && showChrome -> 152.dp
+                        showChrome -> 88.dp
+                        else -> 16.dp
+                    },
+                    onBack = { VideoSession.minimize() },
+                    onMinimize = { VideoSession.minimize() },
+                    onExpand = { VideoSession.expand() },
+                    onClose = { VideoSession.close() },
+                    openChannel = { VideoSession.minimize(); nav.navigate("channel/$it") },
+                    openVideo = { VideoSession.open(it) },
+                )
+            }
+        }
         }
 
         UpdateDialogs()
