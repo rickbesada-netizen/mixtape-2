@@ -26,6 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -694,7 +697,7 @@ fun VideoScreen(
                 color = Color.Black,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.navigationBars)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(end = 8.dp, bottom = miniBottomPadding)
                     .width(230.dp)
                     .aspectRatio(16f / 9f),
@@ -732,7 +735,7 @@ fun VideoScreen(
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-            .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.systemBars)),
+            .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.systemBars)),
     ) {
         playerArea(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         if (!fullscreen) {
