@@ -50,6 +50,7 @@ fun SettingsScreen() {
     val autoSync by container.settings.autoSyncPlaylists.collectAsStateWithLifecycle()
     val savedWords by container.settings.cleanWords.collectAsStateWithLifecycle()
     val autoClean by container.settings.autoClean.collectAsStateWithLifecycle()
+    val hideCovers by container.settings.hideAdultCovers.collectAsStateWithLifecycle()
     val autoCleanMode by container.settings.autoCleanMode.collectAsStateWithLifecycle()
     var words by remember { mutableStateOf(savedWords) }
     var checking by remember { mutableStateOf(false) }
@@ -240,6 +241,16 @@ fun SettingsScreen() {
         HorizontalDivider()
 
         Text("Clean versions", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        ListItem(
+            headlineContent = { Text("Hide adult covers") },
+            supportingContent = {
+                Text(
+                    "Song covers and video thumbnails showing nudity or sexual content are blurred. " +
+                        "Checked on your phone, nothing is sent anywhere. Takes effect on newly loaded images."
+                )
+            },
+            trailingContent = { Switch(checked = hideCovers, onCheckedChange = { container.settings.setHideAdultCovers(it) }) },
+        )
         ListItem(
             headlineContent = { Text("Clean mode") },
             supportingContent = {

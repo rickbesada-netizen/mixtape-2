@@ -139,6 +139,9 @@ dependencies {
     // Images
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Spots adult images in covers and thumbnails, on the phone
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+
     // Playback
     val media3 = "1.5.1"
     implementation("androidx.media3:media3-exoplayer:$media3")

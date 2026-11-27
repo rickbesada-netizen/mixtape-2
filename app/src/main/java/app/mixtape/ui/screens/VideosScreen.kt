@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -172,7 +173,8 @@ private fun TopBar(onSearch: () -> Unit) {
 @Composable
 private fun BottomBar(section: Section, onSection: (Section) -> Unit, openShorts: () -> Unit, openMusic: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-        Column {
+        // Sit above the phone's own back / home / recent buttons, not under them.
+        Column(Modifier.navigationBarsPadding()) {
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                 BarItem(if (section == Section.HOME) Icons.Filled.Home else Icons.Outlined.Home, "Home", section == Section.HOME) { onSection(Section.HOME) }

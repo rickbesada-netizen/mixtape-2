@@ -40,7 +40,12 @@ import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import java.util.Locale
 
-class MixtapeApp : Application() {
+class MixtapeApp : Application(), coil.ImageLoaderFactory {
+    /** Every image in the app goes through the adult-image check. */
+    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+        .components { add(app.mixtape.core.CoverGuard(this@MixtapeApp) { container.settings.hideAdultCovers.value }) }
+        .build()
+
     lateinit var container: AppContainer
         private set
 

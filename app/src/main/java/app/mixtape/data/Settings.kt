@@ -52,6 +52,15 @@ class Settings(context: Context) {
     /** Moves bleeps earlier (+) or later (-) to make up for headphone / speaker lag. */
     val censorOffsetMs: StateFlow<Long> = _censorOffset.asStateFlow()
 
+    private val _hideAdultCovers = MutableStateFlow(prefs.getBoolean("hide_adult_covers", true))
+    /** Blur song covers and video thumbnails that show nudity or sexual content. */
+    val hideAdultCovers: StateFlow<Boolean> = _hideAdultCovers.asStateFlow()
+
+    fun setHideAdultCovers(v: Boolean) {
+        prefs.edit().putBoolean("hide_adult_covers", v).apply()
+        _hideAdultCovers.value = v
+    }
+
     private val _autoClean = MutableStateFlow(prefs.getBoolean("auto_clean", false))
     /** Clean mode: every song is cleaned as it plays, using its time-synced lyrics to find the swear words. */
     val autoClean: StateFlow<Boolean> = _autoClean.asStateFlow()

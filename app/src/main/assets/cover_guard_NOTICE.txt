@@ -1,0 +1,2 @@
+cover_guard.tflite is Yahoo's open_nsfw model (BSD 2-Clause, https://github.com/yahoo/open_nsfw),
+converted to TensorFlow Lite by https://github.com/devzwy/open_nsfw_android.
