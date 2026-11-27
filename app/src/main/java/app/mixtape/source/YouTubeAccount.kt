@@ -50,6 +50,23 @@ class YouTubeAccount(context: Context, private val http: OkHttpClient) {
         return true
     }
 
+    /**
+     * Backup way in: the cookie text from youtube.com in a computer's browser, where you're
+     * already signed in. Checked against YouTube before it's kept.
+     */
+    suspend fun signInWithCookies(raw: String): Boolean {
+        val cookies = raw.trim().removePrefix("Cookie:").trim().replace("\n", " ")
+        if (sapisid(cookies) == null) return false
+        val before = _cookies.value
+        _cookies.value = cookies
+        val ok = runCatching { find(call("account/account_menu", JSONObject()), "activeAccountHeaderRenderer") != null }.getOrDefault(false)
+        if (!ok) { _cookies.value = before; return false }
+        prefs.edit().putString("cookies", cookies).apply()
+        _signedIn.value = true
+        refreshUser()
+        return true
+    }
+
     fun signOut() {
         prefs.edit().clear().apply()
         _cookies.value = null
@@ -191,7 +208,11 @@ class YouTubeAccount(context: Context, private val http: OkHttpClient) {
 
         /** Google's sign-in page, which comes back to YouTube once you're in. */
         const val SIGN_IN_URL = "https://accounts.google.com/ServiceLogin?service=youtube&passive=true" +
-            "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26next%3Dhttps%253A%252F%252Fwww.youtube.com%252F"
+            "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26next%3Dhttps%253A%252F%252Fwww.youtube.com%252F"
+
+        /** The phone's own Chrome identity, minus the parts that mark it as an in-app browser. */
+        fun chromeUserAgent(default: String): String =
+            default.replace("; wv", "").replace(Regex("Version/[\\d.]+ "), "")
 
         fun sapisid(cookies: String): String? = cookies.split(";").map { it.trim() }.let { parts ->
             fun get(name: String) = parts.firstOrNull { it.startsWith("$name=") }?.substringAfter("=")

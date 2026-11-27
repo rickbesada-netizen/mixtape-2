@@ -49,10 +49,14 @@ fun YouTubeSignInDialog(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
     var finished by remember { mutableStateOf(false) }
+    var pasting by remember { mutableStateOf(false) }
+    var pasted by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
 
     fun success() {
         if (finished) return
         finished = true
+        CookieManager.getInstance().flush()
         Toast.makeText(context, "Signed in to YouTube. Bringing in your subscriptions...", Toast.LENGTH_LONG).show()
         scope.launch {
             container.youtubeAccount.refreshUser()
@@ -79,6 +83,45 @@ fun YouTubeSignInDialog(onDone: () -> Unit) {
                         )
                     }
                 }
+                androidx.compose.material3.TextButton(onClick = { pasting = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    Text("Google says this app may not be secure? Sign in another way")
+                }
+                if (pasting) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { pasting = false },
+                        title = { Text("Sign in with your computer") },
+                        text = {
+                            Column {
+                                Text(
+                                    "1. On a computer, open youtube.com in Chrome and make sure you're signed in.\n" +
+                                        "2. Press F12, open the Network tab, then refresh the page.\n" +
+                                        "3. Click the first item (www.youtube.com), find \"cookie:\" under Request Headers, and copy its whole value.\n" +
+                                        "4. Send it to your phone and paste it here.\n\n" +
+                                        "This text is the same as being signed in, so don't share it with anyone.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                androidx.compose.material3.OutlinedTextField(
+                                    value = pasted, onValueChange = { pasted = it },
+                                    label = { Text("Paste the cookie text") },
+                                    maxLines = 4,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(enabled = !checking && pasted.isNotBlank(), onClick = {
+                                checking = true
+                                scope.launch {
+                                    val ok = container.youtubeAccount.signInWithCookies(pasted)
+                                    checking = false
+                                    if (ok) { pasting = false; success() }
+                                    else Toast.makeText(context, "That didn't work. Copy the whole cookie value while signed in to youtube.com.", Toast.LENGTH_LONG).show()
+                                }
+                            }) { Text(if (checking) "Checking..." else "Sign in") }
+                        },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { pasting = false }) { Text("Cancel") } },
+                    )
+                }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 Box(Modifier.weight(1f)) {
                     AndroidView(
@@ -88,8 +131,14 @@ fun YouTubeSignInDialog(onDone: () -> Unit) {
                                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
-                                // Google refuses sign-in from in-app browsers, so look like Chrome.
-                                settings.userAgentString = YouTubeAccount.USER_AGENT
+                                settings.javaScriptCanOpenWindowsAutomatically = true
+                                // Google refuses sign-in from in-app browsers. It spots them by the
+                                // "wv" in the browser name and by a header carrying the app's name,
+                                // so present as plain Chrome and leave that header off.
+                                settings.userAgentString = YouTubeAccount.chromeUserAgent(android.webkit.WebSettings.getDefaultUserAgent(ctx))
+                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                                    androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet())
+                                }
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                                         loading = true
