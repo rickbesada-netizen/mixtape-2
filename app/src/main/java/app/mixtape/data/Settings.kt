@@ -52,6 +52,27 @@ class Settings(context: Context) {
     /** Moves bleeps earlier (+) or later (-) to make up for headphone / speaker lag. */
     val censorOffsetMs: StateFlow<Long> = _censorOffset.asStateFlow()
 
+    private val _autoClean = MutableStateFlow(prefs.getBoolean("auto_clean", false))
+    /** Clean mode: every song is cleaned as it plays, using its time-synced lyrics to find the swear words. */
+    val autoClean: StateFlow<Boolean> = _autoClean.asStateFlow()
+
+    private val _autoCleanMode = MutableStateFlow(
+        runCatching { app.mixtape.player.CensorMode.valueOf(prefs.getString("auto_clean_mode", "") ?: "") }
+            .getOrDefault(app.mixtape.player.CensorMode.INSTRUMENTAL)
+    )
+    /** How clean mode covers a swear word: bleep, silence, instrumental, or instrumental with a bleep. */
+    val autoCleanMode: StateFlow<app.mixtape.player.CensorMode> = _autoCleanMode.asStateFlow()
+
+    fun setAutoClean(v: Boolean) {
+        prefs.edit().putBoolean("auto_clean", v).apply()
+        _autoClean.value = v
+    }
+
+    fun setAutoCleanMode(v: app.mixtape.player.CensorMode) {
+        prefs.edit().putString("auto_clean_mode", v.name).apply()
+        _autoCleanMode.value = v
+    }
+
     fun setCensorOffsetMs(v: Long) {
         val c = v.coerceIn(-500L, 500L)
         prefs.edit().putLong("censor_offset_ms", c).apply()

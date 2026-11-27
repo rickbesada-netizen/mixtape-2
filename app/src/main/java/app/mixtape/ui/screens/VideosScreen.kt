@@ -103,7 +103,7 @@ private enum class Section { HOME, SUBSCRIPTIONS, YOU }
 /** Keeps lists while you move around the app, so coming back doesn't reload. */
 private object VideosCache {
     val lists = HashMap<String, List<YtItem>>()
-    val pagers = HashMap<String, Pager<YtItem>>()
+    val pagers = HashMap<String, app.mixtape.source.Pages<YtItem>>()
     val published = HashMap<String, Long>()
     var shelf: List<VideoItem> = emptyList()
 }
@@ -294,7 +294,8 @@ private fun HomeSection(
     val history by container.videoLibrary.history.collectAsStateWithLifecycle()
     var chip by rememberSaveable { mutableStateOf(HomeChip.ALL) }
     var reload by remember { mutableIntStateOf(0) }
-    val key = "home:" + chip.name
+    val signedIn by container.youtubeAccount.signedIn.collectAsStateWithLifecycle()
+    val key = "home:" + chip.name + if (signedIn && chip == HomeChip.ALL) ":me" else ""
     var items by remember(key, reload) { mutableStateOf(VideosCache.lists[key].orEmpty()) }
     var loading by remember(key, reload) { mutableStateOf(false) }
     var error by remember(key, reload) { mutableStateOf<String?>(null) }
@@ -321,6 +322,12 @@ private fun HomeSection(
             VideosCache.pagers[key] = watch.kiosk(chip.kiosk!!)
             items = emptyList()
             loadMore()
+        } else if (signedIn) {
+            // Your real YouTube recommendations.
+            VideosCache.pagers[key] = container.youtubeAccount.recommended()
+            items = emptyList()
+            loadMore()
+            if (items.isEmpty() && error == null) error = "YouTube didn't send any recommendations. Tap Try again, or sign in again under You."
         } else {
             loading = true
             val mine = container.videoLibrary.forYou()
@@ -392,28 +399,63 @@ private fun SubscriptionsSection(openVideo: (String) -> Unit, openChannel: (Stri
     val history by container.videoLibrary.history.collectAsStateWithLifecycle()
     var chip by rememberSaveable { mutableStateOf(SubsChip.ALL) }
     var reload by remember { mutableIntStateOf(0) }
-    var videos by remember { mutableStateOf(VideosCache.lists["subs"].orEmpty().filterIsInstance<YtItem.Video>().map { it.v }) }
+    val signedIn by container.youtubeAccount.signedIn.collectAsStateWithLifecycle()
+    val subsKey = if (signedIn) "subs:me" else "subs"
+    var videos by remember(subsKey) { mutableStateOf(VideosCache.lists[subsKey].orEmpty().filterIsInstance<YtItem.Video>().map { it.v }) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(reload) {
-        if (VideosCache.lists["subs"] != null && reload == 0) return@LaunchedEffect
+    suspend fun loadMoreFromYouTube() {
+        val pager = VideosCache.pagers[subsKey] ?: return
+        if (pager.done || loading) return
         loading = true
-        runCatching { subscriptionVideos(container, force = reload > 0) }
-            .onSuccess { v -> videos = v; VideosCache.lists["subs"] = v.map { YtItem.Video(it) } }
+        runCatching { pager.load() }
+            .onSuccess { more ->
+                val seen = videos.map { it.id }.toHashSet()
+                videos = videos + more.filterIsInstance<YtItem.Video>().map { it.v }.filter { seen.add(it.id) }
+                VideosCache.lists[subsKey] = videos.map { YtItem.Video(it) }
+            }
             .onFailure { error = friendly(it) }
         loading = false
+    }
+
+    LaunchedEffect(reload, subsKey) {
+        if (VideosCache.lists[subsKey] != null && reload == 0) return@LaunchedEffect
+        error = null
+        if (signedIn) {
+            // Your subscriptions feed straight from your YouTube account.
+            VideosCache.pagers[subsKey] = container.youtubeAccount.subscriptionsFeed()
+            videos = emptyList()
+            loadMoreFromYouTube()
+            loadMoreFromYouTube()
+            return@LaunchedEffect
+        }
+        loading = true
+        runCatching { subscriptionVideos(container, force = reload > 0) }
+            .onSuccess { v -> videos = v; VideosCache.lists[subsKey] = v.map { YtItem.Video(it) } }
+            .onFailure { error = friendly(it) }
+        loading = false
+    }
+    val subsListState = rememberLazyListState()
+    LaunchedEffect(subsListState, subsKey) {
+        if (!signedIn) return@LaunchedEffect
+        snapshotFlow { subsListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .distinctUntilChanged()
+            .collect { last -> if (last >= subsListState.layoutInfo.totalItemsCount - 4) loadMoreFromYouTube() }
     }
 
     val dayAgo = System.currentTimeMillis() - 24L * 60 * 60 * 1000
     val shown = when (chip) {
         SubsChip.ALL -> videos
-        SubsChip.TODAY -> videos.filter { (VideosCache.published[it.id] ?: 0L) >= dayAgo }
+        SubsChip.TODAY -> videos.filter {
+            (VideosCache.published[it.id] ?: 0L) >= dayAgo ||
+                Regex("\\b(second|minute|hour)s? ago").containsMatchIn(it.ago)
+        }
         SubsChip.VIDEOS -> videos.filter { !it.isShort && !it.isLive }
         SubsChip.LIVE -> videos.filter { it.isLive }
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = subsListState) {
         item { ChannelsRow(openChannel, openSubscriptions) }
         item {
             Row(
@@ -422,7 +464,7 @@ private fun SubscriptionsSection(openVideo: (String) -> Unit, openChannel: (Stri
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SubsChip.entries.forEach { c -> YtChip(c.label, chip == c) { chip = c } }
-                TextButton(onClick = { reload++ }) { Text("Refresh", color = Color(0xFF3EA6FF)) }
+                TextButton(onClick = { VideosCache.lists.remove(subsKey); reload++ }) { Text("Refresh", color = Color(0xFF3EA6FF)) }
             }
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) } }
@@ -470,8 +512,31 @@ private fun YouSection(
     val subsFlow = remember { container.subscriptions.subscriptions() }
     val subs by subsFlow.collectAsStateWithLifecycle(emptyList())
     var open by rememberSaveable { mutableStateOf<YouList?>(null) }
+    var remote by rememberSaveable { mutableStateOf<String?>(null) }
+    var signingIn by remember { mutableStateOf(false) }
+    var confirmSignOut by remember { mutableStateOf(false) }
+    val ytSignedIn by container.youtubeAccount.signedIn.collectAsStateWithLifecycle()
+    val ytUser by container.youtubeAccount.user.collectAsStateWithLifecycle()
+    LaunchedEffect(ytSignedIn) { if (ytSignedIn && ytUser == null) container.youtubeAccount.refreshUser() }
 
     androidx.activity.compose.BackHandler(enabled = open != null) { open = null }
+    androidx.activity.compose.BackHandler(enabled = remote != null) { remote = null }
+
+    if (signingIn) YouTubeSignInDialog(onDone = { signingIn = false })
+    if (confirmSignOut) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            title = { Text("Sign out of YouTube?") },
+            text = { Text("Home goes back to Mixtape's own picks. Your subscriptions stay in Mixtape.") },
+            confirmButton = { TextButton(onClick = { container.youtubeAccount.signOut(); VideosCache.lists.clear(); confirmSignOut = false }) { Text("Sign out") } },
+            dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
+        )
+    }
+
+    remote?.let { which ->
+        RemoteList(which, openVideo, onBack = { remote = null })
+        return
+    }
 
     val list = open
     if (list != null) {
@@ -537,6 +602,38 @@ private fun YouSection(
                 YtChip("Manage subscriptions", false, openSubscriptions)
                 YtChip("Downloads", false, openDownloads)
             }
+            // Your YouTube account.
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(40.dp).clip(CircleShape).background(Color(0xFFFF0000)), contentAlignment = Alignment.Center) {
+                        val photo = ytUser?.photo
+                        if (ytSignedIn && photo != null) AsyncImage(model = photo, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        else Icon(Icons.Filled.PlayArrow, null, tint = Color.White)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        if (ytSignedIn) {
+                            Text(ytUser?.name ?: "Signed in to YouTube", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                listOfNotNull(ytUser?.handle, "Your recommendations and subscriptions").joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text("Sign in to YouTube", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Get your own recommendations, subscriptions, Watch later and liked videos",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (ytSignedIn) TextButton(onClick = { confirmSignOut = true }) { Text("Sign out") }
+                    else TextButton(onClick = { signingIn = true }) { Text("Sign in") }
+                }
+            }
         }
         item {
             Row(
@@ -582,6 +679,12 @@ private fun YouSection(
             LibraryRow(Icons.Filled.WatchLater, "Watch later", "${later.size} videos", later.firstOrNull()?.thumbnail) { open = YouList.LATER }
             LibraryRow(Icons.Filled.History, "History", "${history.size} videos", history.firstOrNull()?.video?.thumbnail) { open = YouList.HISTORY }
             LibraryRow(Icons.Filled.Download, "Downloads", "Videos and songs on this phone", null, openDownloads)
+            if (ytSignedIn) {
+                Text("On your YouTube account", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 4.dp))
+                LibraryRow(Icons.Filled.WatchLater, "Watch later", "From YouTube", null) { remote = "VLWL" }
+                LibraryRow(Icons.Outlined.ThumbUp, "Liked videos", "From YouTube", null) { remote = "VLLL" }
+                LibraryRow(Icons.Filled.History, "Watch history", "From YouTube", null) { remote = "FEhistory" }
+            }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -760,5 +863,63 @@ private suspend fun subscriptionVideos(container: app.mixtape.AppContainer, forc
             ago = if (f.publishedAt > 0) DateUtils.getRelativeTimeSpanString(f.publishedAt).toString() else "",
             avatar = avatars[f.channelId],
         )
+    }
+}
+
+/** A list from your YouTube account (Watch later, Liked videos, history), loaded page by page. */
+@Composable
+private fun RemoteList(which: String, openVideo: (String) -> Unit, onBack: () -> Unit) {
+    val container = LocalContainer.current
+    val account = container.youtubeAccount
+    val title = when (which) { "VLWL" -> "Watch later"; "VLLL" -> "Liked videos"; else -> "Watch history" }
+    val pager = remember(which) {
+        when (which) { "VLWL" -> account.watchLater(); "VLLL" -> account.likedVideos(); else -> account.history() }
+    }
+    var videos by remember(which) { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var loading by remember(which) { mutableStateOf(false) }
+    var error by remember(which) { mutableStateOf<String?>(null) }
+    suspend fun more() {
+        if (pager.done || loading) return
+        loading = true
+        runCatching { pager.load() }
+            .onSuccess { l ->
+                val seen = videos.map { it.id }.toHashSet()
+                videos = videos + l.filterIsInstance<YtItem.Video>().map { it.v }.filter { seen.add(it.id) }
+            }
+            .onFailure { error = friendly(it) }
+        loading = false
+    }
+    LaunchedEffect(which) { more() }
+    val state = rememberLazyListState()
+    LaunchedEffect(state, which) {
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .distinctUntilChanged()
+            .collect { last -> if (last >= state.layoutInfo.totalItemsCount - 4) more() }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        }
+        if (videos.isNotEmpty()) {
+            Surface(
+                onClick = { app.mixtape.source.VideoQueue.set(title, videos); openVideo(videos.first().id) },
+                shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.PlayArrow, null, tint = MaterialTheme.colorScheme.surface)
+                    Text("Play all", color = MaterialTheme.colorScheme.surface, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize(), state = state) {
+            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) } }
+            if (!loading && videos.isEmpty() && error == null) item {
+                Text("Nothing here yet", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            items(videos, key = { "r" + it.id }) { v -> VideoRowItem(v, 0f, onOpen = { openVideo(v.id) }) }
+            if (loading) item { Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp)) } }
+        }
     }
 }

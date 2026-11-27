@@ -114,6 +114,7 @@ fun VideoCard(
     onChannel: (() -> Unit)?,
     extraMenu: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
+    app.mixtape.ui.VideoPeek.remember(v)
     Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(bottom = 14.dp)) {
         Thumbnail(v, progress, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         Row(Modifier.padding(start = 12.dp, top = 10.dp), verticalAlignment = Alignment.Top) {
@@ -148,6 +149,7 @@ fun VideoRowItem(
     extraMenu: List<Pair<String, () -> Unit>> = emptyList(),
     highlight: Boolean = false,
 ) {
+    app.mixtape.ui.VideoPeek.remember(v)
     Row(
         Modifier.fillMaxWidth()
             .then(if (highlight) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)

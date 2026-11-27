@@ -47,6 +47,7 @@ import app.mixtape.data.RadioSource
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -250,6 +251,35 @@ fun NowPlayingScreen(onBack: () -> Unit, onFixMatch: (String) -> Unit, onWatchVi
 
         if (np.key.startsWith("yt:")) {
             TextButton(onClick = { onWatchVideo(np.key.removePrefix("yt:")) }) { Text("Watch the video") }
+        }
+        val autoClean by container.settings.autoClean.collectAsStateWithLifecycle()
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val key = np.key
+            // Re-read every second while clean mode looks up the lyrics.
+            var tick by remember { mutableStateOf(0) }
+            LaunchedEffect(key, autoClean) { while (autoClean) { kotlinx.coroutines.delay(1000); tick++ } }
+            val status = remember(key, autoClean, tick, edits) {
+                when {
+                    !autoClean -> "Covers swear words as they're sung"
+                    edits.containsKey(key) -> "Using your own clean edit"
+                    container.censor.autoChecking(key) -> "Checking this song's lyrics..."
+                    container.censor.autoUnavailable(key) -> "No timed lyrics for this song, playing as it is"
+                    else -> when (val n = container.censor.autoCount(key)) {
+                        null -> "Checking this song's lyrics..."
+                        0 -> "This song is already clean"
+                        1 -> "Covering 1 word"
+                        else -> "Covering $n words"
+                    }
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Clean mode", style = MaterialTheme.typography.titleSmall)
+                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.material3.Switch(checked = autoClean, onCheckedChange = { container.settings.setAutoClean(it) })
         }
         track?.let { tt ->
             val hasEdit = edits.containsKey(tt.key)

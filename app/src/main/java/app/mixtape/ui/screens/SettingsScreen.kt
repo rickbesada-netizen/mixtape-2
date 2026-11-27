@@ -49,6 +49,8 @@ fun SettingsScreen() {
     val sponsorCats by container.settings.sponsorCategories.collectAsStateWithLifecycle()
     val autoSync by container.settings.autoSyncPlaylists.collectAsStateWithLifecycle()
     val savedWords by container.settings.cleanWords.collectAsStateWithLifecycle()
+    val autoClean by container.settings.autoClean.collectAsStateWithLifecycle()
+    val autoCleanMode by container.settings.autoCleanMode.collectAsStateWithLifecycle()
     var words by remember { mutableStateOf(savedWords) }
     var checking by remember { mutableStateOf(false) }
     var updateStatus by remember { mutableStateOf<String?>(null) }
@@ -238,6 +240,26 @@ fun SettingsScreen() {
         HorizontalDivider()
 
         Text("Clean versions", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        ListItem(
+            headlineContent = { Text("Clean mode") },
+            supportingContent = {
+                Text(
+                    "Every song is cleaned as it plays: Mixtape reads the song's time-synced lyrics and covers each swear " +
+                        "word right when it's sung. Your own clean edits always come first. Songs without timed lyrics play as they are."
+                )
+            },
+            trailingContent = { Switch(checked = autoClean, onCheckedChange = { container.settings.setAutoClean(it) }) },
+        )
+        if (autoClean) {
+            Text("Cover swear words with", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            app.mixtape.player.CensorMode.entries.forEach { m ->
+                ListItem(
+                    headlineContent = { Text(m.label) },
+                    leadingContent = { RadioButton(selected = autoCleanMode == m, onClick = null) },
+                    modifier = Modifier.clickable { container.settings.setAutoCleanMode(m) },
+                )
+            }
+        }
         Text(
             "\"Clean version\" on a playlist already catches common swear words and slurs. Add any other words " +
                 "you don't want, separated by commas.",
@@ -255,6 +277,7 @@ fun SettingsScreen() {
             TextButton(
                 onClick = {
                     container.settings.setCleanWords(words.trim())
+                    container.censor.clearAuto()
                     Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.padding(horizontal = 8.dp),

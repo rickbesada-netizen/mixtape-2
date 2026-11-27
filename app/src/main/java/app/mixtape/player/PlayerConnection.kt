@@ -54,6 +54,7 @@ class PlayerConnection(
     private val settings: app.mixtape.data.Settings,
     private val library: app.mixtape.data.LibraryRepository,
     private val radio: app.mixtape.source.RadioEngine,
+    private val resume: app.mixtape.data.ResumeStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var controller: MediaController? = null
@@ -93,7 +94,52 @@ class PlayerConnection(
 
     private var consecutiveErrors = 0
 
+    // ---- "Remember my place" ----
+
+    /** The song playing and where it was at the last tick, saved when you skip away from it. */
+    private var spotKey: String? = null
+    private var spotPos = 0L
+    private var spotDur = 0L
+    private var spotTicks = 0
+
+    private fun noteSpot(c: MediaController, saveNow: Boolean) {
+        val key = c.currentMediaItem?.mediaId ?: return
+        spotKey = key
+        spotPos = c.currentPosition.coerceAtLeast(0)
+        spotDur = c.duration.takeIf { it > 0 } ?: 0
+        if (saveNow && resume.remembers(key)) resume.save(key, spotPos, spotDur)
+    }
+
+    private fun onSongChanged(c: MediaController, reason: Int) {
+        val prev = spotKey
+        if (prev != null && resume.remembers(prev)) {
+            // Played to the end: next time it starts from the beginning. Skipped away: keep the spot.
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                resume.clear(prev)
+            } else resume.save(prev, spotPos, spotDur)
+        }
+        val key = c.currentMediaItem?.mediaId
+        spotKey = key
+        spotPos = 0
+        spotDur = 0
+        if (key != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT && resume.remembers(key)) {
+            val at = resume.get(key)
+            if (at != null && c.currentPosition < 3_000) c.seekTo(at.positionMs)
+        }
+    }
+
+    /** Plays the list from the song you were on last time, at the spot you stopped. */
+    fun continueFrom(tracks: List<Track>): Boolean {
+        val (index, at) = resume.lastIn(tracks.map { it.key }) ?: return false
+        playTracks(tracks, index, startPositionMs = at.positionMs)
+        return true
+    }
+
     private val listener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            controller?.let { onSongChanged(it, reason) }
+        }
+
         override fun onEvents(player: Player, events: Player.Events) {
             if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying) consecutiveErrors = 0
             refresh()
@@ -151,7 +197,10 @@ class PlayerConnection(
             keepPitch = settings.keepPitch.value,
             radioLoading = radioJob?.isActive == true,
         )
-        if (c.isPlaying) startTicker() else stopTicker()
+        if (c.isPlaying) startTicker() else {
+            stopTicker()
+            if (c.playbackState == Player.STATE_READY) noteSpot(c, saveNow = true)
+        }
     }
 
     private fun startTicker() {
@@ -163,6 +212,8 @@ class PlayerConnection(
                     positionMs = c.currentPosition.coerceAtLeast(0),
                     durationMs = c.duration.takeIf { it > 0 } ?: _state.value.durationMs,
                 )
+                // Remember the spot every few seconds, in case the app is closed while playing.
+                noteSpot(c, saveNow = ++spotTicks % 10 == 0)
                 delay(500)
             }
         }

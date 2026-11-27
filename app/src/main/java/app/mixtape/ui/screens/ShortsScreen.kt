@@ -111,7 +111,10 @@ fun ShortsScreen(onBack: () -> Unit, openVideo: (String) -> Unit, openChannel: (
     var buffering by remember { mutableStateOf(false) }
 
     val player = remember {
-        ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ONE }
+        val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(10_000, 30_000, 700, 1_500)
+            .build()
+        ExoPlayer.Builder(context).setLoadControl(load).build().apply { repeatMode = Player.REPEAT_MODE_ONE }
     }
     DisposableEffect(Unit) {
         container.player.pause()
@@ -137,6 +140,8 @@ fun ShortsScreen(onBack: () -> Unit, openVideo: (String) -> Unit, openChannel: (
         paused = false
         player.stop()
         player.clearMediaItems()
+        // Get the next two ready while this one plays, so swiping is instant.
+        shorts.drop(page + 1).take(2).forEach { YouTubeVideo.prefetch(it.id) }
         runCatching { YouTubeVideo.options(v.id) }
             .onSuccess { o ->
                 // Shorts are small; 720p is plenty and starts fast.

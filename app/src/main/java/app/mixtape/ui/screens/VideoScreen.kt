@@ -270,7 +270,14 @@ fun VideoScreen(
     var showSpeed by remember { mutableStateOf(false) }
     var loop by remember { mutableStateOf(false) }
 
-    val player = remember { ExoPlayer.Builder(context).build() }
+    val player = remember {
+        // Start playing after a second of video instead of 2.5, like YouTube.
+        val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+            .build()
+        ExoPlayer.Builder(context).setLoadControl(load).build()
+    }
+    val peek = remember(videoId) { app.mixtape.ui.VideoPeek.get(videoId) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var videoSpeed by remember { mutableFloatStateOf(1f) }
     var videoKeepPitch by remember { mutableStateOf(true) }
@@ -373,6 +380,11 @@ fun VideoScreen(
             player.prepare()
             player.play()
         }
+        // These don't need the video's details, so load them alongside.
+        launch { votes = container.youtubeWatch.votes(videoId) }
+        launch { segments = container.youtubeWatch.skipSegments(videoId, sponsorCats) }
+        launch { inLater = container.videoLibrary.isInWatchLater(videoId) }
+        launch { liked = container.videoLibrary.isLiked(videoId) }
         runCatching { YouTubeVideo.options(videoId) }
             .onSuccess { o ->
                 options = o
@@ -397,10 +409,12 @@ fun VideoScreen(
                 }
             }
             .onFailure { if (offlineFile == null) error = it.message ?: "Couldn't load video" }
-        launch { votes = container.youtubeWatch.votes(videoId) }
-        launch { segments = container.youtubeWatch.skipSegments(videoId, sponsorCats) }
-        launch { inLater = container.videoLibrary.isInWatchLater(videoId) }
-        launch { liked = container.videoLibrary.isLiked(videoId) }
+        // Get the next video ready so it starts quickly.
+        launch {
+            delay(4_000)
+            (VideoQueue.after(videoId).firstOrNull() ?: options?.related?.firstOrNull { !it.isShort })
+                ?.let { YouTubeVideo.prefetch(it.id) }
+        }
         // Load the first comments straight away for the comments card, like YouTube.
         launch {
             delay(800)
@@ -579,6 +593,12 @@ fun VideoScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+
+            // The thumbnail fills the wait while the video loads.
+            val thumb = options?.thumbnailUrl ?: peek?.thumbnail
+            if (thumb != null && offlineFile == null && error == null && (options == null || (buffering && position == 0L))) {
+                AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().background(Color.Black))
+            }
 
             if (captionText.isNotBlank()) {
                 Text(
@@ -775,6 +795,7 @@ fun VideoScreen(
                 when (panel) {
                     null -> Details(
                         options = options,
+                        peek = peek,
                         videoItem = videoItem,
                         votes = votes,
                         liked = liked,
@@ -802,6 +823,10 @@ fun VideoScreen(
                                 scope.launch {
                                     liked = container.videoLibrary.toggleLiked(v)
                                     seekFlash = if (liked) "Added to Liked videos" else "Removed from Liked videos"
+                                    // Like it on YouTube too when you're signed in.
+                                    if (container.youtubeAccount.signedIn.value) {
+                                        runCatching { container.youtubeAccount.like(v.id, liked) }
+                                    }
                                 }
                             }
                         },
@@ -1014,6 +1039,7 @@ private fun SeekBar(
 @Composable
 private fun Details(
     options: VideoOptions?,
+    peek: VideoItem?,
     videoItem: VideoItem?,
     votes: Pair<Long, Long>?,
     liked: Boolean,
@@ -1045,6 +1071,16 @@ private fun Details(
     LazyColumn(Modifier.fillMaxSize()) {
         val o = options
         if (o == null) {
+            val p = peek
+            if (p != null) item {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text(p.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOf(p.channel, viewsText(p.views), p.ago).filter { it.isNotBlank() }.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             return@LazyColumn
         }

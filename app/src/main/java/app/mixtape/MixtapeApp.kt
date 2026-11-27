@@ -10,6 +10,7 @@ import app.mixtape.core.net.buildHttpClient
 import app.mixtape.data.BackupManager
 import app.mixtape.data.LibraryRepository
 import app.mixtape.data.Settings
+import app.mixtape.data.ResumeStore
 import app.mixtape.data.db.AppDatabase
 import app.mixtape.download.CryptoManager
 import app.mixtape.download.DownloadController
@@ -33,6 +34,7 @@ import app.mixtape.spotify.SpotifyApi
 import app.mixtape.spotify.SpotifyAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.launch
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
@@ -112,7 +114,19 @@ class AppContainer(context: Context) {
 
     val backup = BackupManager(context, db, library, crypto, downloads).also { it.videoHistory = videoLibrary }
 
-    val subscriptions = SubscriptionRepository(context, db.subscriptions(), http)
+    /** Your own YouTube account, if you've signed in (recommendations, subscriptions feed, likes). */
+    val youtubeAccount = app.mixtape.source.YouTubeAccount(context, http)
+
+    val subscriptions = SubscriptionRepository(context, db.subscriptions(), http).also { repo ->
+        // Subscribing in Mixtape also subscribes on YouTube when you're signed in.
+        repo.mirror = { id, on ->
+            if (youtubeAccount.signedIn.value) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    runCatching { if (on) youtubeAccount.subscribe(id) else youtubeAccount.unsubscribe(id) }
+                }
+            }
+        }
+    }
 
     val castRelay = CastRelay(context, http, sources, matcher, downloads, crypto)
 
@@ -131,9 +145,12 @@ class AppContainer(context: Context) {
     val lyrics = LyricsClient(http)
 
     /** Your own clean edits (beeped / muted parts of songs). */
-    val censor = CensorStore(db.censor(), lyrics, settings)
+    val censor = CensorStore(db.censor(), lyrics, settings, context) { key -> library.getTrack(key) }
 
-    val player = PlayerConnection(context, settings, library, radio)
+    /** "Remember my place" playlists. */
+    val resume = ResumeStore(context, library)
+
+    val player = PlayerConnection(context, settings, library, radio, resume)
 
     val playlistSync = PlaylistSync(context, library, db.playlists(), links, spotify, spotifyAuth, downloads, settings)
 

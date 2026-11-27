@@ -58,12 +58,19 @@ class SubscriptionRepository(
     fun subscriptions(): Flow<List<SubscriptionEntity>> = dao.active()
     fun subscribedIds(): Flow<Set<String>> = dao.activeIds().map { it.toSet() }
 
-    suspend fun subscribe(c: Channel) {
-        dao.upsert(SubscriptionEntity(c.id, c.name, c.avatarUrl, System.currentTimeMillis(), deleted = false))
+    /** Also subscribe / unsubscribe on YouTube (set when you're signed in to YouTube). */
+    var mirror: ((channelId: String, subscribed: Boolean) -> Unit)? = null
+
+    suspend fun subscribe(c: Channel, mirror: Boolean = true) {
+        val existing = dao.get(c.id)
+        if (existing != null && !existing.deleted && !mirror) return
+        dao.upsert(SubscriptionEntity(c.id, c.name, c.avatarUrl ?: existing?.avatarUrl, System.currentTimeMillis(), deleted = false))
         feedAt = 0
+        if (mirror) this.mirror?.invoke(c.id, true)
     }
 
     suspend fun unsubscribe(channelId: String) {
+        this.mirror?.invoke(channelId, false)
         val existing = dao.get(channelId) ?: return
         dao.upsert(existing.copy(deleted = true, subscribedAt = System.currentTimeMillis()))
         feedCache = feedCache.filter { it.channelId != channelId }

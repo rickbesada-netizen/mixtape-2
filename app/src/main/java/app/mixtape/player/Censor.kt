@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 
@@ -31,6 +32,9 @@ class CensorStore(
     private val dao: CensorDao,
     private val lyrics: LyricsClient,
     private val settings: Settings,
+    context: android.content.Context? = null,
+    /** Finds a song's details (title, artist, length) for clean mode. */
+    private val trackLookup: suspend (String) -> Track? = { null },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -75,16 +79,83 @@ class CensorStore(
         for ((i, line) in lines.withIndex()) {
             if (line.text.isBlank()) continue
             val next = lines.getOrNull(i + 1)?.startMs ?: (line.startMs + 4000)
-            val lineLen = min(max(next - line.startMs, 800L), 6000L)
+            val gap = max(next - line.startMs, 600L)
             for (m in filter.findAll(line.text)) {
-                val frac = m.range.first.toDouble() / max(line.text.length, 1)
-                val wordLen = m.value.length.toDouble() / max(line.text.length, 1)
-                val start = line.startMs + (frac * lineLen).toLong() - 250
-                val end = line.startMs + ((frac + wordLen) * lineLen).toLong() + 350
-                out += CensorRange(max(0, start), end, auto = true)
+                val w = line.words
+                if (w.isNotEmpty()) {
+                    // Word-by-word timings: exact.
+                    val at = w.lastOrNull { it.charIndex <= m.range.first } ?: w.first()
+                    val after = w.firstOrNull { it.charIndex > m.range.last }?.startMs
+                        ?: min(at.startMs + 700, line.startMs + gap)
+                    out += CensorRange(max(0, at.startMs - 120), max(after, at.startMs + 250) + 120, auto = true)
+                } else {
+                    // Only a time per line: a line is sung at roughly 13 letters a second and
+                    // finishes before the next one starts, so place the word inside that.
+                    val sung = min(gap * 9 / 10, max(line.text.length * 75L, 900L))
+                    val len = max(line.text.length, 1).toDouble()
+                    val start = line.startMs + (m.range.first / len * sung).toLong() - 300
+                    val end = line.startMs + ((m.range.last + 1) / len * sung).toLong() + 400
+                    out += CensorRange(max(0, start), end, auto = true)
+                }
             }
         }
-        return Result.success(out)
+        return Result.success(merge(out))
+    }
+
+    // ---- Clean mode: cleaned automatically while playing ----
+
+    private val autoPrefs = context?.getSharedPreferences("auto_clean", android.content.Context.MODE_PRIVATE)
+    /** Songs checked this run: the bad-word spots found (empty = nothing to clean). */
+    private val autoCache = java.util.concurrent.ConcurrentHashMap<String, List<CensorRange>>()
+    private val autoLoading = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    /** Songs whose lyrics couldn't be found this run (tried again next time the app starts). */
+    private val autoMissing = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Clean mode's edit for a song: your own edit always wins; otherwise the spots found from its
+     * lyrics, found once (in the background) and remembered, so downloaded songs stay clean offline.
+     */
+    fun autoEdit(key: String): CensorEdit? {
+        autoCache[key]?.let { return if (it.isEmpty()) null else CensorEdit(key, it, settings.autoCleanMode.value) }
+        autoPrefs?.getString(key, null)?.let { raw ->
+            val r = if (raw.isEmpty()) emptyList() else decode(raw)
+            autoCache[key] = r
+            return if (r.isEmpty()) null else CensorEdit(key, r, settings.autoCleanMode.value)
+        }
+        if (key !in autoMissing && autoLoading.add(key)) {
+            scope.launch {
+                try {
+                    val track = trackLookup(key) ?: return@launch
+                    autoMark(track)
+                        .onSuccess { r ->
+                            autoCache[key] = r
+                            autoPrefs?.edit()?.putString(key, encode(r, CensorMode.BEEP))?.apply()
+                        }
+                        .onFailure { autoMissing += key }
+                } catch (e: Exception) {
+                    autoMissing += key
+                } finally {
+                    autoLoading.remove(key)
+                }
+            }
+        }
+        return null
+    }
+
+    /** Whether clean mode is still looking up this song's lyrics. */
+    fun autoChecking(key: String) = key in autoLoading
+
+    /** Clean mode found no timed lyrics for this song, so it plays as it is. */
+    fun autoUnavailable(key: String) = key in autoMissing
+
+    /** How many bad words clean mode is covering in this song (null = not checked yet). */
+    fun autoCount(key: String): Int? = autoCache[key]?.size
+
+    /** Forget what clean mode found (after you change your word list). */
+    fun clearAuto() {
+        autoCache.clear()
+        autoMissing.clear()
+        autoPrefs?.edit()?.clear()?.apply()
     }
 
     companion object {
@@ -175,11 +246,15 @@ class CensorEngine(
             lastKey = key
             state.useNext = false
         }
-        state.current = key?.let { store.get(it) }
+        state.current = key?.let { editFor(it) }
         val nextIndex = p.nextMediaItemIndex
         state.next = if (nextIndex != androidx.media3.common.C.INDEX_UNSET && nextIndex < p.mediaItemCount) {
-            store.get(p.getMediaItemAt(nextIndex).mediaId)
+            editFor(p.getMediaItemAt(nextIndex).mediaId)
         } else null
         state.offsetMs = settings.censorOffsetMs.value
     }
+
+    /** Your own clean edit, or with clean mode on, the one made automatically from the lyrics. */
+    private fun editFor(key: String): CensorEdit? =
+        store.get(key) ?: if (settings.autoClean.value) store.autoEdit(key) else null
 }

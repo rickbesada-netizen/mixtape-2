@@ -2,6 +2,8 @@ package app.mixtape.source
 
 import android.media.MediaCodecList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.MediaFormat
 import org.schabi.newpipe.extractor.ServiceList
@@ -88,7 +90,45 @@ data class VideoOptions(
 }
 
 object YouTubeVideo {
-    suspend fun options(videoId: String): VideoOptions = withContext(Dispatchers.IO) {
+    private class Cached(val options: VideoOptions, val at: Long)
+
+    /** Recently opened videos: stream addresses stay valid for a few hours, so re-opening is instant. */
+    private val cache = object : LinkedHashMap<String, Cached>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Cached>?) = size > 40
+    }
+    private val loading = HashMap<String, kotlinx.coroutines.Deferred<VideoOptions>>()
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private const val FRESH_MS = 3 * 60 * 60 * 1000L
+
+    /** Already loaded (or being loaded) for this video: returns straight away if so. */
+    fun cached(videoId: String): VideoOptions? = synchronized(cache) {
+        cache[videoId]?.takeIf { System.currentTimeMillis() - it.at < FRESH_MS }?.options
+    }
+
+    /** Video details and streams, from the cache or shared with a load already running. */
+    suspend fun options(videoId: String): VideoOptions {
+        cached(videoId)?.let { return it }
+        val job = synchronized(cache) {
+            loading[videoId]?.takeIf { it.isActive || !it.isCancelled }
+                ?: bg.async {
+                    load(videoId).also { o -> synchronized(cache) { cache[videoId] = Cached(o, System.currentTimeMillis()) } }
+                }.also { loading[videoId] = it }
+        }
+        return try {
+            job.await()
+        } finally {
+            synchronized(cache) { if (loading[videoId] === job && job.isCompleted) loading.remove(videoId) }
+        }
+    }
+
+    /** Start loading a video you're likely to open next (Up next), so it starts quickly. */
+    fun prefetch(videoId: String) {
+        if (cached(videoId) != null) return
+        synchronized(cache) { if (loading.containsKey(videoId)) return }
+        bg.launch { runCatching { options(videoId) } }
+    }
+
+    private suspend fun load(videoId: String): VideoOptions = withContext(Dispatchers.IO) {
         val info = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
 
         val audios = info.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.isUrl }

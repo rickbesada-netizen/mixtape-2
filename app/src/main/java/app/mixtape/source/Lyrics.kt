@@ -11,7 +11,14 @@ import java.text.Normalizer
 import kotlin.math.abs
 
 /** One line of time-synced lyrics. */
-data class LyricLine(val startMs: Long, val text: String)
+data class LyricLine(
+    val startMs: Long,
+    val text: String,
+    /** Word-by-word timings, when the lyrics have them ("enhanced" LRC): time and where the word starts in [text]. */
+    val words: List<LyricWord> = emptyList(),
+)
+
+data class LyricWord(val startMs: Long, val charIndex: Int)
 
 data class Lyrics(
     val plain: String,
@@ -76,21 +83,37 @@ class LyricsClient(private val http: OkHttpClient) {
     companion object {
         private val LRC_TIME = Regex("\\[(\\d+):(\\d+)(?:[.:](\\d+))?]")
 
+        private val WORD_TIME = Regex("<(\\d+):(\\d+)(?:[.:](\\d+))?>")
+
+        private fun toMs(min: String, sec: String, frac: String): Long {
+            val f = when (frac.length) {
+                0 -> 0L
+                1 -> frac.toLong() * 100
+                2 -> frac.toLong() * 10
+                else -> frac.take(3).toLong()
+            }
+            return min.toLong() * 60_000 + sec.toLong() * 1000 + f
+        }
+
         fun parseLrc(text: String): List<LyricLine> = text.lines().flatMap { line ->
             val times = LRC_TIME.findAll(line).toList()
             if (times.isEmpty()) return@flatMap emptyList()
-            val words = line.replace(LRC_TIME, "").trim()
+            val raw = line.replace(LRC_TIME, "")
+            // Word timings like <00:12.34>: note where each word starts, then strip the tags.
+            val words = mutableListOf<LyricWord>()
+            val sb = StringBuilder()
+            var i = 0
+            for (m in WORD_TIME.findAll(raw)) {
+                sb.append(raw, i, m.range.first)
+                words += LyricWord(toMs(m.groupValues[1], m.groupValues[2], m.groupValues[3]), sb.length)
+                i = m.range.last + 1
+            }
+            sb.append(raw.substring(i))
+            val lead = sb.length - sb.trimStart().length
+            val clean = sb.toString().trim()
+            val shifted = words.map { it.copy(charIndex = (it.charIndex - lead).coerceAtLeast(0)) }
             times.map { m ->
-                val min = m.groupValues[1].toLong()
-                val sec = m.groupValues[2].toLong()
-                val frac = m.groupValues[3]
-                val ms = when (frac.length) {
-                    0 -> 0L
-                    1 -> frac.toLong() * 100
-                    2 -> frac.toLong() * 10
-                    else -> frac.take(3).toLong()
-                }
-                LyricLine(min * 60_000 + sec * 1000 + ms, words)
+                LyricLine(toMs(m.groupValues[1], m.groupValues[2], m.groupValues[3]), clean, shifted)
             }
         }.sortedBy { it.startMs }
 

@@ -104,17 +104,23 @@ data class SkipSegment(val startMs: Long, val endMs: Long, val category: String)
  * Loads a list one page at a time (feeds, search, channel videos, comments). Keeps the NewPipe
  * extractor so "load more" continues where it left off.
  */
+/** Something that loads a list one page at a time. */
+interface Pages<T> {
+    val done: Boolean
+    suspend fun load(): List<T>
+}
+
 class Pager<T>(
     private val first: () -> ListExtractor.InfoItemsPage<*>,
     private val more: (Page) -> ListExtractor.InfoItemsPage<*>,
     private val map: (Any) -> T?,
-) {
+) : Pages<T> {
     private var next: Page? = null
     private var started = false
-    var done = false
+    override var done = false
         private set
 
-    suspend fun load(): List<T> = withContext(Dispatchers.IO) {
+    override suspend fun load(): List<T> = withContext(Dispatchers.IO) {
         if (done) return@withContext emptyList()
         val page = if (!started) first() else {
             val n = next ?: run { done = true; return@withContext emptyList() }

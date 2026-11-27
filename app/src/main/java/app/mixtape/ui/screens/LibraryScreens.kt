@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.UploadFile
@@ -259,6 +261,12 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
         app.mixtape.ui.components.sortSongs(filtered, songSort, playStats) { t, i -> position[t.key] ?: i.toLong() }
     }
     val downloadedHere = tracks.count { it.key in downloaded }
+    val resumeOn by container.resume.playlists.collectAsStateWithLifecycle()
+    val remembering = playlistId in resumeOn
+    val resumeVersion by container.resume.version.collectAsStateWithLifecycle()
+    val lastSpot = remember(shown, remembering, resumeVersion) {
+        if (remembering) container.resume.lastIn(shown.map { it.key }) else null
+    }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -324,9 +332,36 @@ fun PlaylistScreen(playlistId: Long, onBack: () -> Unit, startDownloadedOnly: Bo
                         Modifier.fillMaxWidth().padding(16.dp).horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Button(onClick = { actions.play(shown, 0) }) {
-                            Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play")
+                        if (lastSpot != null) {
+                            val (i, at) = lastSpot
+                            Button(onClick = {
+                                scope.launch { container.library.saveTracks(shown) }
+                                container.player.continueFrom(shown)
+                            }) {
+                                Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                                Text("Continue: ${shown[i].title.take(22)} (${formatClock(at.positionMs)})", maxLines = 1)
+                            }
                         }
+                        val playButton: @Composable () -> Unit = {
+                            Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                            Text(if (lastSpot != null) "From the top" else "Play")
+                        }
+                        if (lastSpot != null) FilledTonalButton(onClick = { actions.play(shown, 0) }) { playButton() }
+                        else Button(onClick = { actions.play(shown, 0) }) { playButton() }
+                        FilterChip(
+                            selected = remembering,
+                            onClick = {
+                                container.resume.setOn(playlistId, !remembering)
+                                Toast.makeText(
+                                    context,
+                                    if (!remembering) "Songs in this playlist will carry on from where you stopped them"
+                                    else "Songs in this playlist will start from the beginning",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            },
+                            label = { Text("Remember my place") },
+                            leadingIcon = { Icon(if (remembering) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, null, Modifier.size(18.dp)) },
+                        )
                         FilledTonalButton(onClick = {
                             container.player.playTracks(shown, (shown.indices).random(), shuffle = true)
                         }) {
@@ -490,4 +525,12 @@ fun TrackSearchField(query: String, onChange: (String) -> Unit, placeholder: Str
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
     )
+}
+
+private fun formatClock(ms: Long): String {
+    val t = ms / 1000
+    val h = t / 3600
+    val m = (t % 3600) / 60
+    val sec = t % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
 }
