@@ -51,6 +51,7 @@ fun SettingsScreen() {
     val savedWords by container.settings.cleanWords.collectAsStateWithLifecycle()
     val autoClean by container.settings.autoClean.collectAsStateWithLifecycle()
     val hideCovers by container.settings.hideAdultCovers.collectAsStateWithLifecycle()
+    val feedPreviews by container.settings.feedPreviews.collectAsStateWithLifecycle()
     val autoCleanMode by container.settings.autoCleanMode.collectAsStateWithLifecycle()
     var words by remember { mutableStateOf(savedWords) }
     var checking by remember { mutableStateOf(false) }
@@ -241,6 +242,11 @@ fun SettingsScreen() {
         HorizontalDivider()
 
         Text("Clean versions", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        ListItem(
+            headlineContent = { Text("Play videos in feeds") },
+            supportingContent = { Text("When you stop scrolling Home or Subscriptions, the top video plays silently in its card, like YouTube") },
+            trailingContent = { Switch(checked = feedPreviews, onCheckedChange = { container.settings.setFeedPreviews(it) }) },
+        )
         ListItem(
             headlineContent = { Text("Hide adult covers") },
             supportingContent = {

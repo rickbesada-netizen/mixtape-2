@@ -113,10 +113,15 @@ fun VideoCard(
     onOpen: () -> Unit,
     onChannel: (() -> Unit)?,
     extraMenu: List<Pair<String, () -> Unit>> = emptyList(),
+    /** Plays this card's video silently when it's the one at the top of the list. */
+    preview: FeedPreview? = null,
 ) {
     app.mixtape.ui.VideoPeek.remember(v)
-    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(bottom = 14.dp)) {
-        Thumbnail(v, progress, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+    Column(Modifier.fillMaxWidth().clickable { preview?.handOff(v.id); onOpen() }.padding(bottom = 14.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            Thumbnail(v, progress, Modifier.fillMaxSize())
+            if (preview != null && preview.activeId == v.id && preview.ready) InlineVideo(preview)
+        }
         Row(Modifier.padding(start = 12.dp, top = 10.dp), verticalAlignment = Alignment.Top) {
             Box(
                 Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
@@ -136,6 +141,39 @@ fun VideoCard(
                 )
             }
             VideoMenu(v, extraMenu)
+        }
+    }
+}
+
+/** The silent preview playing over a card's thumbnail, with time left and a red progress line. */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.InlineVideo(preview: FeedPreview) {
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { ctx ->
+            androidx.media3.ui.PlayerView(ctx).apply {
+                useController = false
+                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                player = preview.player
+            }
+        },
+        onRelease = { it.player = null },
+        modifier = Modifier.fillMaxSize(),
+    )
+    Icon(
+        androidx.compose.material.icons.Icons.AutoMirrored.Filled.VolumeOff, "Muted", tint = Color.White,
+        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(28.dp)
+            .background(Color(0x99000000), CircleShape).padding(5.dp),
+    )
+    val left = (preview.durationMs - preview.positionMs).coerceAtLeast(0) / 1000
+    if (preview.durationMs > 0) {
+        Text(
+            formatDuration(left), color = Color.White, style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
+                .background(Color(0xCC000000), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 1.dp),
+        )
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x66FFFFFF))) {
+            Box(Modifier.fillMaxWidth((preview.positionMs.toFloat() / preview.durationMs).coerceIn(0f, 1f)).height(3.dp).background(Color(0xFFFF0000)))
         }
     }
 }

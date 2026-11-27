@@ -77,6 +77,7 @@ import app.mixtape.source.YouTubeWatch
 import app.mixtape.source.YtItem
 import app.mixtape.ui.components.CastButton
 import app.mixtape.ui.components.LocalContainer
+import app.mixtape.ui.components.rememberFeedPreview
 import app.mixtape.ui.components.LocalTrackActions
 import app.mixtape.ui.components.SmartSearch
 import app.mixtape.ui.components.VideoCard
@@ -362,6 +363,7 @@ private fun HomeSection(
             .collect { last -> if (last >= listState.layoutInfo.totalItemsCount - 4) loadMore() }
     }
 
+    val preview = rememberFeedPreview(listState) { k -> (k as? String)?.takeIf { it.startsWith("v:") }?.removePrefix("v:") }
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
         item { ChannelsRow(openChannel, openSubscriptions) }
         item {
@@ -384,6 +386,7 @@ private fun HomeSection(
                     item.v, history.firstOrNull { it.video.id == item.v.id }?.progress ?: 0f,
                     onOpen = { openVideo(item.v.id) },
                     onChannel = item.v.channelId?.let { id -> { openChannel(id) } },
+                    preview = preview,
                 )
             }
             // The Shorts shelf sits a few videos down, like on YouTube.
@@ -457,6 +460,7 @@ private fun SubscriptionsSection(openVideo: (String) -> Unit, openChannel: (Stri
         SubsChip.LIVE -> videos.filter { it.isLive }
     }
 
+    val subsPreview = rememberFeedPreview(subsListState) { k -> (k as? String)?.takeIf { it.startsWith("sv") }?.removePrefix("sv") }
     LazyColumn(Modifier.fillMaxSize(), state = subsListState) {
         item { ChannelsRow(openChannel, openSubscriptions) }
         item {
@@ -485,6 +489,7 @@ private fun SubscriptionsSection(openVideo: (String) -> Unit, openChannel: (Stri
                 v, history.firstOrNull { it.video.id == v.id }?.progress ?: 0f,
                 onOpen = { openVideo(v.id) },
                 onChannel = v.channelId?.let { id -> { openChannel(id) } },
+                preview = subsPreview,
             )
         }
         if (loading) item { Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp)) } }

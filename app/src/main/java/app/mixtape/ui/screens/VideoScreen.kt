@@ -93,6 +93,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -429,7 +430,9 @@ fun VideoScreen(
     var firstChoice by remember { mutableStateOf(true) }
     LaunchedEffect(selected) {
         val choice = selected ?: return@LaunchedEffect
-        val pos = if (firstChoice) (container.videoLibrary.resumeAt(videoId) ?: 0L) else player.currentPosition
+        val pos = if (firstChoice) {
+            app.mixtape.ui.components.FeedPreview.Handoff.take(videoId) ?: container.videoLibrary.resumeAt(videoId) ?: 0L
+        } else player.currentPosition
         firstChoice = false
         runCatching {
             player.setMediaSource(buildSource(container, choice, null, null), pos)
@@ -729,8 +732,12 @@ fun VideoScreen(
         return
     }
 
-    // Shrunk: a small window in the corner that keeps playing while you scroll the app.
+    // Shrunk: a small window in the corner that keeps playing while you scroll the app, like
+    // YouTube's. Tap to open it again, swipe it up to open, swipe it sideways or down to close.
     if (minimized) {
+        val miniX = remember { androidx.compose.animation.core.Animatable(0f) }
+        val miniY = remember { androidx.compose.animation.core.Animatable(0f) }
+        val swipePx = with(density) { 90.dp.toPx() }
         Box(Modifier.fillMaxSize()) {
             Surface(
                 shape = RoundedCornerShape(10.dp),
@@ -739,8 +746,38 @@ fun VideoScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(end = 8.dp, bottom = miniBottomPadding)
-                    .width(230.dp)
+                    .padding(end = 8.dp, bottom = miniBottomPadding + 6.dp)
+                    .graphicsLayer {
+                        translationX = miniX.value
+                        translationY = miniY.value
+                        alpha = (1f - kotlin.math.abs(miniX.value) / (swipePx * 3f)).coerceIn(0.2f, 1f)
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                scope.launch {
+                                    when {
+                                        miniY.value < -swipePx * 0.6f -> { miniX.snapTo(0f); miniY.snapTo(0f); onExpand() }
+                                        kotlin.math.abs(miniX.value) > swipePx || miniY.value > swipePx * 0.7f -> {
+                                            launch { miniX.animateTo(miniX.value * 3f) }
+                                            onClose()
+                                        }
+                                        else -> {
+                                            launch { miniX.animateTo(0f) }
+                                            miniY.animateTo(0f)
+                                        }
+                                    }
+                                }
+                            },
+                        ) { change, drag ->
+                            change.consume()
+                            scope.launch {
+                                miniX.snapTo(miniX.value + drag.x)
+                                miniY.snapTo(miniY.value + drag.y)
+                            }
+                        }
+                    }
+                    .width(200.dp)
                     .aspectRatio(16f / 9f),
             ) {
                 Box {
@@ -754,14 +791,28 @@ fun VideoScreen(
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
+                    if (captionText.isNotBlank()) {
+                        Text(
+                            captionText, color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 2,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp, start = 6.dp, end = 6.dp)
+                                .background(Color(0xB3000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
+                        )
+                    }
                     // Tap the window to open it full size again.
                     Box(Modifier.fillMaxSize().clickable { onExpand() })
-                    Row(Modifier.fillMaxWidth().background(Color(0x55000000)), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { togglePlay() }) {
-                            Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play / pause", tint = Color.White)
-                        }
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close", tint = Color.White) }
+                    // Just the two buttons on the picture, like YouTube.
+                    IconButton(onClick = { togglePlay() }, modifier = Modifier.align(Alignment.TopStart).size(40.dp)) {
+                        Icon(
+                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Play / pause", tint = Color.White,
+                            modifier = Modifier.background(Color(0x66000000), CircleShape).padding(3.dp),
+                        )
+                    }
+                    IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).size(40.dp)) {
+                        Icon(
+                            Icons.Filled.Close, "Close", tint = Color.White,
+                            modifier = Modifier.background(Color(0x66000000), CircleShape).padding(3.dp),
+                        )
                     }
                     if (duration > 0) {
                         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp).background(Color(0x55FFFFFF))) {
@@ -1081,7 +1132,8 @@ private fun Details(
                     )
                 }
             }
-            item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            // Grey shapes where everything will be, like YouTube while it loads.
+            item { LoadingSkeleton(showTitle = p == null) }
             return@LazyColumn
         }
         item {
@@ -1418,5 +1470,45 @@ private fun CommentRow(c: Comment, videoId: String, isReply: Boolean = false) {
             }
         }
         replies?.forEach { r -> Box(Modifier.padding(start = 40.dp)) { CommentRow(r, videoId, isReply = true) } }
+    }
+}
+
+/** Placeholder shapes for the channel row, buttons, comments and Up next while a video loads. */
+@Composable
+private fun LoadingSkeleton(showTitle: Boolean) {
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
+    val a by pulse.animateFloat(
+        0.35f, 0.7f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "alpha",
+    )
+    val grey = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f * a / 0.5f)
+    @Composable
+    fun bar(w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(6.dp)) =
+        Box(Modifier.width(w).height(h).background(grey, shape))
+    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (showTitle) {
+            bar(300.dp, 18.dp)
+            bar(180.dp, 12.dp)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            bar(36.dp, 36.dp, CircleShape)
+            Spacer(Modifier.width(10.dp))
+            bar(120.dp, 14.dp)
+            Spacer(Modifier.weight(1f))
+            bar(88.dp, 34.dp, RoundedCornerShape(50))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(4) { bar(80.dp, 34.dp, RoundedCornerShape(50)) }
+        }
+        Box(Modifier.fillMaxWidth().height(72.dp).background(grey, RoundedCornerShape(12.dp)))
+        repeat(2) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(grey, RoundedCornerShape(12.dp)))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                bar(36.dp, 36.dp, CircleShape)
+                Spacer(Modifier.width(10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { bar(240.dp, 14.dp); bar(150.dp, 12.dp) }
+            }
+        }
     }
 }

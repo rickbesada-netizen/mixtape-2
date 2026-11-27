@@ -52,6 +52,15 @@ class Settings(context: Context) {
     /** Moves bleeps earlier (+) or later (-) to make up for headphone / speaker lag. */
     val censorOffsetMs: StateFlow<Long> = _censorOffset.asStateFlow()
 
+    private val _feedPreviews = MutableStateFlow(prefs.getBoolean("feed_previews", true))
+    /** Videos play silently in their card when you stop scrolling, like YouTube. */
+    val feedPreviews: StateFlow<Boolean> = _feedPreviews.asStateFlow()
+
+    fun setFeedPreviews(v: Boolean) {
+        prefs.edit().putBoolean("feed_previews", v).apply()
+        _feedPreviews.value = v
+    }
+
     private val _hideAdultCovers = MutableStateFlow(prefs.getBoolean("hide_adult_covers", true))
     /** Blur song covers and video thumbnails that show nudity or sexual content. */
     val hideAdultCovers: StateFlow<Boolean> = _hideAdultCovers.asStateFlow()
